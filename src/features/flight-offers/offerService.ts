@@ -5,8 +5,8 @@ import type { FlightOfferSearchQueryType } from "@/schema/flightSearchSchema.js"
 import type { FlightMulticityRequestType } from "@/schema/flightMulticitySchema.js";
 
 // Flight Offer BASE API
-const FLIGHT_OFFER_API = "https://test.api.amadeus.com/v2/shopping";
-const FLIGHT_DATES_API = "https://test.api.amadeus.com/v1/shopping";
+const FLIGHT_OFFER_API = `${process.env.AMADEUS_BASE_URL}/v2/shopping`;
+const FLIGHT_DATES_API = `${process.env.AMADEUS_BASE_URL}/v1/shopping`;
 
 export const flightOfferService = {
   // Get Flight Offers
@@ -36,7 +36,7 @@ export const flightOfferService = {
     if (queries.returnDate !== undefined && queries.returnDate !== null) {
       searchQueries.append(
         "returnDate",
-        format(queries.returnDate, "yyyy-MM-dd")
+        format(queries.returnDate, "yyyy-MM-dd"),
       );
     }
 
@@ -189,12 +189,18 @@ export const flightOfferService = {
 
       if (response.ok) {
         const data = await response.json();
-        return this.transformFlightDatesResponse(data, params.origin, params.destination);
+        return this.transformFlightDatesResponse(
+          data,
+          params.origin,
+          params.destination,
+        );
       }
 
       // If error, return empty data (no fallback)
       const errorText = await response.text();
-      console.log(`Flight Cheapest Date Search failed (${response.status}): ${errorText}`);
+      console.log(
+        `Flight Cheapest Date Search failed (${response.status}): ${errorText}`,
+      );
       return {
         data: {},
         meta: {
@@ -230,9 +236,12 @@ export const flightOfferService = {
       }>;
     },
     origin: string,
-    destination: string
+    destination: string,
   ) {
-    const priceData: Record<string, { price: number; isCheapest: boolean; isRecommended: boolean }> = {};
+    const priceData: Record<
+      string,
+      { price: number; isCheapest: boolean; isRecommended: boolean }
+    > = {};
     const dates: string[] = [];
 
     if (!apiResponse.data || apiResponse.data.length === 0) {

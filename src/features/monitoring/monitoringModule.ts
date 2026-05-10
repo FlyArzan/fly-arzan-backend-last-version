@@ -57,7 +57,7 @@ async function pollAmadeus() {
     // Accept any HTTP response as "reachable"; only network errors/timeouts are treated as down.
     const controller = new AbortController();
     const id = setTimeout(() => controller.abort(), 5000);
-    const res = await fetch("https://api.amadeus.com/", {
+    const res = await fetch(`${process.env.AMADEUS_BASE_URL}/`, {
       method: "GET",
       signal: controller.signal,
     });

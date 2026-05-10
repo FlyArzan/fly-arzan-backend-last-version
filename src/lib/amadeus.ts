@@ -1,6 +1,6 @@
 // Amadeus Auth Token
 export const getAmadeusToken = async () => {
-  const url = "https://test.api.amadeus.com/v1/security/oauth2/token";
+  const url = `${process.env.AMADEUS_BASE_URL}/v1/security/oauth2/token`;
 
   const body = new URLSearchParams({
     grant_type: "client_credentials",
