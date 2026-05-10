@@ -48,6 +48,11 @@ export const flightOfferService = {
     });
 
     if (!response.ok) {
+      const errorBody = await response.text().catch(() => "(no body)");
+      console.error(
+        `[Amadeus] getFlightOffers failed (${response.status} ${response.statusText}):`,
+        errorBody,
+      );
       throw new HTTPException(500, {
         message: `Failed to search flights: ${response.statusText}`,
       });
@@ -76,6 +81,11 @@ export const flightOfferService = {
     });
 
     if (!response.ok) {
+      const errorBody = await response.text().catch(() => "(no body)");
+      console.error(
+        `[Amadeus] getMultiCityFlightOffers failed (${response.status} ${response.statusText}):`,
+        errorBody,
+      );
       throw new HTTPException(500, {
         message: `Failed to search multi-city flights: ${response.statusText}`,
       });
