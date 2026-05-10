@@ -10,7 +10,7 @@ function haversineDistance(
   lat1: number,
   lon1: number,
   lat2: number,
-  lon2: number
+  lon2: number,
 ): number {
   const R = 6371;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
@@ -18,15 +18,18 @@ function haversineDistance(
   const a =
     Math.sin(dLat / 2) * Math.sin(dLat / 2) +
     Math.cos((lat1 * Math.PI) / 180) *
-    Math.cos((lat2 * Math.PI) / 180) *
-    Math.sin(dLon / 2) *
-    Math.sin(dLon / 2);
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return R * c;
 }
 
 // In-memory cache for airports (valid for 24 hours - airports don't change often)
-let airportsCache: { data: Awaited<ReturnType<typeof fetchAllAirports>>; timestamp: number } | null = null;
+let airportsCache: {
+  data: Awaited<ReturnType<typeof fetchAllAirports>>;
+  timestamp: number;
+} | null = null;
 const AIRPORTS_CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours
 
 async function fetchAllAirports() {
@@ -53,7 +56,10 @@ async function fetchAllAirports() {
 }
 
 async function getCachedAirports() {
-  if (airportsCache && Date.now() - airportsCache.timestamp < AIRPORTS_CACHE_DURATION) {
+  if (
+    airportsCache &&
+    Date.now() - airportsCache.timestamp < AIRPORTS_CACHE_DURATION
+  ) {
     return airportsCache.data;
   }
   const data = await fetchAllAirports();
@@ -77,7 +83,7 @@ async function findNearestAirport(lat: number, lon: number) {
           lat,
           lon,
           airport.latitudeDeg,
-          airport.longitudeDeg
+          airport.longitudeDeg,
         );
         if (distance < minDistance) {
           minDistance = distance;
@@ -128,7 +134,10 @@ let exchangeRateCache: { data: unknown; timestamp: number } | null = null;
 const EXCHANGE_RATE_CACHE_DURATION = 60 * 60 * 1000; // 1 hour
 
 async function getCachedExchangeRates(apiKey: string) {
-  if (exchangeRateCache && Date.now() - exchangeRateCache.timestamp < EXCHANGE_RATE_CACHE_DURATION) {
+  if (
+    exchangeRateCache &&
+    Date.now() - exchangeRateCache.timestamp < EXCHANGE_RATE_CACHE_DURATION
+  ) {
     return exchangeRateCache.data;
   }
   const exchangeUrl = `https://openexchangerates.org/api/latest.json?app_id=${apiKey}`;
@@ -139,6 +148,28 @@ async function getCachedExchangeRates(apiKey: string) {
   return data;
 }
 
+/**
+ * Derive currency symbol from ISO currency code using Intl.NumberFormat.
+ * e.g. "USD" → "$", "EUR" → "€", "GBP" → "£"
+ */
+function getCurrencySymbol(code?: string): string {
+  if (!code) return "$";
+  try {
+    return (
+      new Intl.NumberFormat("en", {
+        style: "currency",
+        currency: code,
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 0,
+      })
+        .formatToParts(0)
+        .find((p) => p.type === "currency")?.value ?? code
+    );
+  } catch {
+    return code;
+  }
+}
+
 /*
   @route    GET: /geo-currency
   @access   public
@@ -146,12 +177,19 @@ async function getCachedExchangeRates(apiKey: string) {
 */
 app.get("/", async (c) => {
   try {
-    // Get IP from headers or use 'check' for auto-detect (works for local dev)
-    const forwardedForIp = c.req.header("X-Forwarded-For") || "check";
+    // Get real client IP (first entry of X-Forwarded-For is the originating IP)
+    const forwardedForIp = c.req
+      .header("X-Forwarded-For")
+      ?.split(",")[0]
+      ?.trim();
 
-    // Location information from IP Address
-    const API_KEY = process.env.GEO_LOCATION_API_KEY;
-    const geoUrl = `https://api.ipapi.com/api/${forwardedForIp}?access_key=${API_KEY}`;
+    // BigDataCloud IP Geolocation API
+    // If ip is omitted BDC auto-detects the caller's IP (works for local dev too)
+    const BDC_API_KEY = process.env.BIGDATACLOUD_API_KEY;
+    const geoParams = new URLSearchParams({ localityLanguage: "en" });
+    if (BDC_API_KEY) geoParams.set("key", BDC_API_KEY);
+    if (forwardedForIp) geoParams.set("ip", forwardedForIp);
+    const geoUrl = `https://api-bdc.net/data/ip-geolocation?${geoParams.toString()}`;
 
     const OPEN_EXCHANGE_API_KEY = process.env.OPEN_EXCHANGE_API_KEY;
 
@@ -162,34 +200,60 @@ app.get("/", async (c) => {
     ]);
 
     if (!geoResponse.ok) {
-      console.error("Geolocation API error:", await geoResponse.text());
+      console.error(
+        "[BigDataCloud] Geolocation API error:",
+        await geoResponse.text(),
+      );
       return c.json({ error: "Failed to fetch geolocation data" }, 500);
     }
     const geoData = await geoResponse.json();
 
+    // Map BigDataCloud response to our output shape
+    const countryCode: string | undefined = geoData.country?.isoAlpha2;
+    const lat: number | undefined = geoData.location?.latitude;
+    const lon: number | undefined = geoData.location?.longitude;
+    const currencyCode: string | undefined = geoData.country?.currency?.code;
+    const currencySymbol = getCurrencySymbol(currencyCode);
+
     // Fetch nearest airport (don't block response if it fails)
-    const nearestAirport = geoData.latitude && geoData.longitude
-      ? await findNearestAirport(geoData.latitude, geoData.longitude)
-      : null;
+    const nearestAirport =
+      lat != null && lon != null ? await findNearestAirport(lat, lon) : null;
 
     return c.json({
-      countryCode: geoData.country_code,
-      countryName: geoData.country_name,
-      city: geoData.city,
-      latitude: geoData.latitude,
-      longitude: geoData.longitude,
-      languages: geoData.location?.languages || [],
-      countryFlag: geoData.location?.country_flag,
-      callingCode: geoData.location?.calling_code,
-      timeZone: geoData.time_zone,
-      currency: geoData.currency,
+      countryCode,
+      countryName: geoData.country?.name,
+      city: geoData.location?.city,
+      latitude: lat,
+      longitude: lon,
+      languages: geoData.country?.isoAdminLanguages || [],
+      // Use flagcdn.com for flag images (same CDN as before, driven by ISO code)
+      countryFlag: countryCode
+        ? `https://flagcdn.com/w320/${countryCode.toLowerCase()}.png`
+        : undefined,
+      callingCode: geoData.country?.callingCode,
+      // Frontend reads timeZone.id — keep same shape
+      timeZone: { id: geoData.location?.timeZone?.ianaTimeId },
+      // Keep same currency shape the frontend expects
+      currency: {
+        code: currencyCode,
+        name: geoData.country?.currency?.name,
+        symbol: currencySymbol,
+        symbol_native: currencySymbol,
+      },
       exchangeRate: exchangeData
-        ? { base: (exchangeData as { base: string; rates: Record<string, number> }).base, rates: (exchangeData as { base: string; rates: Record<string, number> }).rates }
+        ? {
+            base: (
+              exchangeData as { base: string; rates: Record<string, number> }
+            ).base,
+            rates: (
+              exchangeData as { base: string; rates: Record<string, number> }
+            ).rates,
+          }
         : { base: "USD", rates: { USD: 1 } },
       nearestAirport,
     });
   } catch (error) {
-    console.error("Error in geo-currency endpoint:", error);
+    console.error("[geo-currency] Error:", error);
     return c.json({ error: "Failed to fetch geo-currency data" }, 500);
   }
 });

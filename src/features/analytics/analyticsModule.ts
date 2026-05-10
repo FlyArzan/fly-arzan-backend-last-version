@@ -70,15 +70,15 @@ const lookupGeo = async (ip?: string | null) => {
     return { country: cached.country, region: cached.region } as const;
   }
   try {
-    const key = process.env.GEO_LOCATION_API_KEY;
+    const key = process.env.BIGDATACLOUD_API_KEY;
     if (!key) return { country: null, region: null } as const;
-    const url = `https://api.ipapi.com/api/${ipAddr}?access_key=${key}`;
+    const url = `https://api-bdc.net/data/ip-geolocation?ip=${ipAddr}&localityLanguage=en&key=${key}`;
     const res = await fetch(url);
     if (!res.ok) throw new Error("geo failed");
     const j = await res.json();
     const geo = {
-      country: (j.country_code as string) || null,
-      region: (j.region_name as string) || null,
+      country: (j.country?.isoAlpha2 as string) || null,
+      region: (j.location?.principalSubdivision as string) || null,
       ts: now,
     };
     geoCache.set(ipAddr, geo);
