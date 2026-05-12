@@ -1,4 +1,4 @@
-import { betterAuth } from "better-auth"; 
+import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { admin } from "better-auth/plugins";
 import { APIError } from "better-auth/api";
@@ -20,7 +20,7 @@ export const auth = betterAuth({
       try {
         await sendPasswordResetEmail(user.email, token, url);
         console.log(
-          `[Auth] Password reset email sent successfully to: ${user.email}`
+          `[Auth] Password reset email sent successfully to: ${user.email}`,
         );
       } catch (error) {
         console.error(`[Auth] Failed to send password reset email:`, error);
@@ -38,6 +38,7 @@ export const auth = betterAuth({
   trustedOrigins: [
     process.env.APP_CLIENT_URL!,
     "http://localhost:5173",
+    "https://www.flyarzan.com",
   ],
   advanced: {
     // Use lax for local development (same-site requests)
@@ -90,7 +91,7 @@ export const requireAuth = async (c: Context, next: () => Promise<void>) => {
   if (!session?.user) {
     return c.json(
       { error: "Unauthorized", message: "Authentication required" },
-      401
+      401,
     );
   }
   // Store user and session in context for later use
@@ -106,7 +107,7 @@ export const requireRole = (...allowedRoles: string[]) => {
     if (!session?.user) {
       return c.json(
         { error: "Unauthorized", message: "Authentication required" },
-        401
+        401,
       );
     }
 
@@ -126,7 +127,7 @@ export const requireRole = (...allowedRoles: string[]) => {
           error: "Forbidden",
           message: `Required role: ${allowedRoles.join(" or ")}`,
         },
-        403
+        403,
       );
     }
 
@@ -149,7 +150,7 @@ export const requirePermission = (resource: string, action: string) => {
     if (!session?.user) {
       return c.json(
         { error: "Unauthorized", message: "Authentication required" },
-        401
+        401,
       );
     }
 
@@ -172,7 +173,7 @@ export const requirePermission = (resource: string, action: string) => {
           error: "Forbidden",
           message: `Missing permission: ${resource}:${action}`,
         },
-        403
+        403,
       );
     }
 
