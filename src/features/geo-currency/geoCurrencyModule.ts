@@ -4,8 +4,69 @@ import { prisma } from "@/lib/prisma.js";
 const app = new Hono();
 
 /**
- * Calculate distance between two coordinates using Haversine formula
+ * Clean IPv6-mapped IPv4 addresses (::ffff: prefix)
  */
+const cleanIp = (ip?: string | null) =>
+  ip ? ip.replace("::ffff:", "") : undefined;
+
+/**
+ * Extract client IP from request, with fallback to socket remote address
+ */
+const getClientIp = (c: any) => {
+  const forwardedFor = c.req.header("X-Forwarded-For");
+  const ip =
+    forwardedFor?.split(",")[0]?.trim() ||
+    c.req.raw?.socket?.remoteAddress ||
+    undefined;
+  return cleanIp(ip);
+};
+
+/**
+ * Check if an IP is private/local (loopback, LAN, link-local).
+ * Skip external geo API calls for these to save quota.
+ */
+const isPrivateIp = (ip?: string | null): boolean => {
+  if (!ip) return true;
+  // IPv6 loopback or private
+  if (ip === "::1" || ip.startsWith("fc") || ip.startsWith("fd")) return true;
+  // IPv4 ranges
+  if (
+    ip.startsWith("127.") ||
+    ip.startsWith("10.") ||
+    ip.startsWith("192.168.") ||
+    ip.startsWith("169.254.")
+  )
+    return true;
+  // 172.16.0.0 – 172.31.255.255
+  if (ip.startsWith("172.")) {
+    const second = parseInt(ip.split(".")[1], 10);
+    if (!isNaN(second) && second >= 16 && second <= 31) return true;
+  }
+  return false;
+};
+
+/**
+ * Default geo response for local/private IPs (saves API calls in dev)
+ */
+const DEFAULT_LOCAL_GEO = {
+  countryCode: "US",
+  countryName: "United States",
+  city: "New York",
+  latitude: 40.7128,
+  longitude: -74.006,
+  languages: [],
+  countryFlag: "https://flagcdn.com/w320/us.png",
+  callingCode: "1",
+  timeZone: { id: "America/New_York" },
+  currency: {
+    code: "USD",
+    name: "United States Dollar",
+    symbol: "$",
+    symbol_native: "$",
+  },
+  exchangeRate: { base: "USD", rates: { USD: 1 } },
+  nearestAirport: null,
+};
 function haversineDistance(
   lat1: number,
   lon1: number,
@@ -177,18 +238,22 @@ function getCurrencySymbol(code?: string): string {
 */
 app.get("/", async (c) => {
   try {
-    // Get real client IP (first entry of X-Forwarded-For is the originating IP)
-    const forwardedForIp = c.req
-      .header("X-Forwarded-For")
-      ?.split(",")[0]
-      ?.trim();
+    // Get real client IP (X-Forwarded-For first, then socket fallback)
+    const ipAddr = getClientIp(c);
+
+    // Skip external geo API for private/local IPs — saves API quota in dev
+    if (isPrivateIp(ipAddr)) {
+      console.log("[geo-currency] Private/local IP detected, skipping geo API");
+      return c.json(DEFAULT_LOCAL_GEO);
+    }
 
     // BigDataCloud IP Geolocation API
-    // If ip is omitted BDC auto-detects the caller's IP (works for local dev too)
-    const BDC_API_KEY = process.env.BIGDATACLOUD_API_KEY;
+    // The ip parameter is REQUIRED when using an API key — without it BDC returns 403
+    const BDC_API_KEY =
+      process.env.BIGDATACLOUD_API_KEY || process.env.GEO_LOCATION_API_KEY;
     const geoParams = new URLSearchParams({ localityLanguage: "en" });
     if (BDC_API_KEY) geoParams.set("key", BDC_API_KEY);
-    if (forwardedForIp) geoParams.set("ip", forwardedForIp);
+    if (ipAddr) geoParams.set("ip", ipAddr);
     const geoUrl = `https://api-bdc.net/data/ip-geolocation?${geoParams.toString()}`;
 
     const OPEN_EXCHANGE_API_KEY = process.env.OPEN_EXCHANGE_API_KEY;

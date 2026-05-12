@@ -61,16 +61,39 @@ const geoCache = new Map<string, Geo>();
 const GEO_TTL_MS = 10 * 60 * 1000;
 const cleanIp = (ip?: string | null) =>
   ip ? ip.replace("::ffff:", "") : undefined;
+
+/**
+ * Check if an IP is private/local (loopback, LAN, link-local).
+ * Skip external geo API calls for these to save quota.
+ */
+const isPrivateIp = (ip?: string | null): boolean => {
+  if (!ip) return true;
+  if (ip === "::1" || ip.startsWith("fc") || ip.startsWith("fd")) return true;
+  if (
+    ip.startsWith("127.") ||
+    ip.startsWith("10.") ||
+    ip.startsWith("192.168.") ||
+    ip.startsWith("169.254.")
+  )
+    return true;
+  if (ip.startsWith("172.")) {
+    const second = parseInt(ip.split(".")[1], 10);
+    if (!isNaN(second) && second >= 16 && second <= 31) return true;
+  }
+  return false;
+};
+
 const lookupGeo = async (ip?: string | null) => {
   const ipAddr = cleanIp(ip);
-  if (!ipAddr) return { country: null, region: null } as const;
+  if (!ipAddr || isPrivateIp(ipAddr)) return { country: null, region: null } as const;
   const cached = geoCache.get(ipAddr);
   const now = Date.now();
   if (cached && now - cached.ts < GEO_TTL_MS) {
     return { country: cached.country, region: cached.region } as const;
   }
   try {
-    const key = process.env.BIGDATACLOUD_API_KEY;
+    const key =
+      process.env.BIGDATACLOUD_API_KEY || process.env.GEO_LOCATION_API_KEY;
     if (!key) return { country: null, region: null } as const;
     const url = `https://api-bdc.net/data/ip-geolocation?ip=${ipAddr}&localityLanguage=en&key=${key}`;
     const res = await fetch(url);
