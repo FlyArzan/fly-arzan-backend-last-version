@@ -1,5 +1,6 @@
 import dotenv from "dotenv";
-dotenv.config({ override: true });
+// On Railway, env vars are injected natively — only override with .env locally
+dotenv.config({ override: !process.env.RAILWAY_SERVICE_ID });
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { secureHeaders } from "hono/secure-headers";
@@ -69,14 +70,20 @@ app.use("*", async (c, next) => {
 });
 
 // Session middleware - makes user/session available in all routes
+// Wrapped in try-catch so DB errors don't prevent CORS headers from being applied
 app.use("*", async (c, next) => {
-  const session = await auth.api.getSession({ headers: c.req.raw.headers });
-  if (!session) {
+  try {
+    const session = await auth.api.getSession({ headers: c.req.raw.headers });
+    if (!session) {
+      c.set("user", null);
+      c.set("session", null);
+    } else {
+      c.set("user", session.user);
+      c.set("session", session.session);
+    }
+  } catch {
     c.set("user", null);
     c.set("session", null);
-  } else {
-    c.set("user", session.user);
-    c.set("session", session.session);
   }
   await next();
 });
