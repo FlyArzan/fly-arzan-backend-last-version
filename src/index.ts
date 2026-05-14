@@ -1,6 +1,5 @@
 import dotenv from "dotenv";
-// On Railway, env vars are injected natively — only override with .env locally
-dotenv.config({ override: !process.env.RAILWAY_SERVICE_ID });
+dotenv.config({ override: true });
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { secureHeaders } from "hono/secure-headers";
