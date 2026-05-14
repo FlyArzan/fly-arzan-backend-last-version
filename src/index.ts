@@ -1,4 +1,5 @@
-import "dotenv/config";
+import dotenv from "dotenv";
+dotenv.config({ override: true });
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { secureHeaders } from "hono/secure-headers";
@@ -55,7 +56,7 @@ app.use(
     allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     exposeHeaders: ["Content-Length", "Set-Cookie"],
     maxAge: 600,
-  })
+  }),
 );
 
 // Request ID header for attribution & tracing
@@ -143,7 +144,7 @@ app.notFound((c) => {
     {
       message: `${c.req.path} Not Found`,
     },
-    404
+    404,
   );
 });
 
@@ -165,7 +166,7 @@ const server = serve(
   },
   (info) => {
     console.log(`Server is running on ${info.port}`);
-  }
+  },
 );
 
 // Initialize WebSocket server

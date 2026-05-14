@@ -48,7 +48,19 @@ export const flightOfferService = {
     });
 
     if (!response.ok) {
-      const errorBody = await response.text().catch(() => "(no body)");
+      const errorBody = await response.text().catch(() => "");
+      let parsedError: { errors?: { code?: number; title?: string }[] } = {};
+      try {
+        parsedError = JSON.parse(errorBody);
+      } catch {}
+
+      const errorCodes = parsedError.errors?.map((e) => e.code) ?? [];
+      // 38189 = no cached results, 38190 = no data for this route in test env
+      // Return empty result rather than 500 so the UI shows "no flights found"
+      if (errorCodes.some((c) => c === 38189 || c === 38190)) {
+        return { data: [], dictionaries: {} };
+      }
+
       console.error(
         `[Amadeus] getFlightOffers failed (${response.status} ${response.statusText}):`,
         errorBody,
@@ -58,7 +70,15 @@ export const flightOfferService = {
       });
     }
 
-    return await response.json();
+    const json = await response.json();
+    // Amadeus sometimes returns 200 with an errors array (e.g. code 38189)
+    if (json?.errors?.length) {
+      const codes = json.errors.map((e: { code?: number }) => e.code);
+      if (codes.some((c: number) => c === 38189 || c === 38190)) {
+        return { data: [], dictionaries: {} };
+      }
+    }
+    return json;
   },
 
   // Get Multi-City Flight Offers
@@ -81,7 +101,17 @@ export const flightOfferService = {
     });
 
     if (!response.ok) {
-      const errorBody = await response.text().catch(() => "(no body)");
+      const errorBody = await response.text().catch(() => "");
+      let parsedError: { errors?: { code?: number }[] } = {};
+      try {
+        parsedError = JSON.parse(errorBody);
+      } catch {}
+
+      const errorCodes = parsedError.errors?.map((e) => e.code) ?? [];
+      if (errorCodes.some((c) => c === 38189 || c === 38190)) {
+        return { data: [], dictionaries: {} };
+      }
+
       console.error(
         `[Amadeus] getMultiCityFlightOffers failed (${response.status} ${response.statusText}):`,
         errorBody,

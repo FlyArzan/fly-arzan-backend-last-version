@@ -12,27 +12,6 @@ const cleanIp = (ip?: string | null) =>
   ip ? ip.replace("::ffff:", "").trim() : undefined;
 
 /**
- * Check if an IP is private/local (loopback, LAN, link-local).
- */
-const isPrivateIp = (ip?: string | null): boolean => {
-  if (!ip) return true;
-  if (ip === "::1" || ip.startsWith("fc") || ip.startsWith("fd")) return true;
-  if (
-    ip.startsWith("127.") ||
-    ip.startsWith("10.") ||
-    ip.startsWith("192.168.") ||
-    ip.startsWith("169.254.") ||
-    ip === "0.0.0.0"
-  )
-    return true;
-  if (ip.startsWith("172.")) {
-    const second = parseInt(ip.split(".")[1], 10);
-    if (!isNaN(second) && second >= 16 && second <= 31) return true;
-  }
-  return false;
-};
-
-/**
  * Extract client IP from request headers.
  * Checks multiple common proxy headers in priority order.
  */
@@ -187,10 +166,8 @@ async function getCachedAirports() {
 async function findNearestAirport(lat: number, lon: number) {
   try {
     const airports = await getCachedAirports();
-
     let nearest: (typeof airports)[0] | null = null;
     let minDistance = Infinity;
-
     for (const airport of airports) {
       if (airport.latitudeDeg && airport.longitudeDeg) {
         const distance = haversineDistance(
@@ -205,9 +182,7 @@ async function findNearestAirport(lat: number, lon: number) {
         }
       }
     }
-
     if (!nearest) return null;
-
     return {
       iataCode: nearest.iataCode,
       name: nearest.name,
@@ -215,8 +190,7 @@ async function findNearestAirport(lat: number, lon: number) {
       country: nearest.city?.country?.name,
       countryCode: nearest.city?.country?.iso,
     };
-  } catch (err) {
-    console.error("[geo-currency] findNearestAirport error:", err);
+  } catch {
     return null;
   }
 }
@@ -271,29 +245,15 @@ app.get("/", async (c) => {
   try {
     // ── Step 1: Extract client IP ──
     const ipAddr = getClientIp(c);
-    const xff = c.req.header("X-Forwarded-For");
-    console.log("[geo-currency] X-Forwarded-For:", xff);
-    console.log("[geo-currency] Resolved client IP:", ipAddr);
-    console.log("[geo-currency] Is private IP:", isPrivateIp(ipAddr));
 
     // ── Step 2: Call BigDataCloud ──
     const BDC_API_KEY =
       process.env.BIGDATACLOUD_API_KEY || process.env.GEO_LOCATION_API_KEY;
 
-    if (!BDC_API_KEY) {
-      console.error("[geo-currency] No API key found! Set BIGDATACLOUD_API_KEY env var.");
-    }
-
     const geoParams = new URLSearchParams({ localityLanguage: "en" });
     if (BDC_API_KEY) geoParams.set("key", BDC_API_KEY);
-    if (ipAddr && !isPrivateIp(ipAddr)) {
-      geoParams.set("ip", ipAddr);
-    } else if (ipAddr) {
-      // Still set the ip even if private — BDC returns 200 (just empty data)
-      geoParams.set("ip", ipAddr);
-    }
+    if (ipAddr) geoParams.set("ip", ipAddr);
     const geoUrl = `https://api-bdc.net/data/ip-geolocation?${geoParams.toString()}`;
-    console.log("[geo-currency] BigDataCloud URL:", geoUrl.replace(BDC_API_KEY || "", "[REDACTED]"));
 
     const OPEN_EXCHANGE_API_KEY = process.env.OPEN_EXCHANGE_API_KEY;
 
@@ -303,17 +263,17 @@ app.get("/", async (c) => {
       getCachedExchangeRates(OPEN_EXCHANGE_API_KEY || ""),
     ]);
 
-    console.log("[geo-currency] BigDataCloud status:", geoResponse.status);
-
     if (!geoResponse.ok) {
       const errorText = await geoResponse.text();
-      console.error("[geo-currency] BigDataCloud error response:", errorText);
+      console.error(
+        "[geo-currency] BigDataCloud error:",
+        geoResponse.status,
+        errorText,
+      );
       return c.json({ error: "Failed to fetch geolocation data" }, 500);
     }
 
     const geoData = await geoResponse.json();
-    console.log("[geo-currency] BigDataCloud country:", JSON.stringify(geoData.country));
-    console.log("[geo-currency] BigDataCloud location:", JSON.stringify(geoData.location));
 
     // ── Step 3: Map response ──
     const countryCode: string | null = geoData.country?.isoAlpha2 || null;
@@ -332,15 +292,13 @@ app.get("/", async (c) => {
         ? await findNearestAirport(latitude, longitude)
         : null;
 
-    console.log("[geo-currency] Nearest airport:", JSON.stringify(nearestAirport));
-
-    // ── Step 5: Build response (use null instead of undefined so JSON includes all fields) ──
-    const response = {
+    // ── Step 5: Build response ──
+    return c.json({
       countryCode: countryCode || null,
       countryName: countryName || null,
       city: city || null,
-      latitude: latitude,
-      longitude: longitude,
+      latitude,
+      longitude,
       languages: geoData.country?.isoAdminLanguages || [],
       countryFlag: countryCode
         ? `https://flagcdn.com/w320/${countryCode.toLowerCase()}.png`
@@ -363,17 +321,8 @@ app.get("/", async (c) => {
             ).rates,
           }
         : { base: "USD", rates: { USD: 1 } },
-      nearestAirport: nearestAirport,
-      // Debug info (remove in production later)
-      _debug: {
-        detectedIp: ipAddr || null,
-        isPrivate: isPrivateIp(ipAddr),
-        xForwardedFor: xff || null,
-      },
-    };
-
-    console.log("[geo-currency] Final response countryCode:", response.countryCode, "lat:", response.latitude, "lon:", response.longitude);
-    return c.json(response);
+      nearestAirport,
+    });
   } catch (error) {
     console.error("[geo-currency] Unhandled error:", error);
     return c.json({ error: "Failed to fetch geo-currency data" }, 500);
