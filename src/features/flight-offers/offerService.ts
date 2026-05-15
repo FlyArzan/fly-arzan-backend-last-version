@@ -47,8 +47,13 @@ export const flightOfferService = {
       headers: { Authorization: `Bearer ${token}` },
     });
 
+    console.log(
+      `[Amadeus] flight-offers status: ${response.status} ${response.statusText}`,
+    );
+
     if (!response.ok) {
       const errorBody = await response.text().catch(() => "");
+      console.error(`[Amadeus] flight-offers raw error response:`, errorBody);
       let parsedError: { errors?: { code?: number; title?: string }[] } = {};
       try {
         parsedError = JSON.parse(errorBody);
@@ -58,6 +63,9 @@ export const flightOfferService = {
       // 38189 = no cached results, 38190 = no data for this route in test env
       // Return empty result rather than 500 so the UI shows "no flights found"
       if (errorCodes.some((c) => c === 38189 || c === 38190)) {
+        console.warn(
+          `[Amadeus] No test data for this route (code ${errorCodes.join(",")}). Returning empty result.`,
+        );
         return { data: [], dictionaries: {} };
       }
 
@@ -71,9 +79,19 @@ export const flightOfferService = {
     }
 
     const json = await response.json();
+    console.log(
+      `[Amadeus] flight-offers result: ${json?.data?.length ?? 0} flights returned`,
+    );
+    if (json?.data?.length > 0) {
+      console.log(
+        `[Amadeus] First offer preview:`,
+        JSON.stringify(json.data[0], null, 2),
+      );
+    }
     // Amadeus sometimes returns 200 with an errors array (e.g. code 38189)
     if (json?.errors?.length) {
       const codes = json.errors.map((e: { code?: number }) => e.code);
+      console.warn(`[Amadeus] 200 response but has errors:`, json.errors);
       if (codes.some((c: number) => c === 38189 || c === 38190)) {
         return { data: [], dictionaries: {} };
       }
