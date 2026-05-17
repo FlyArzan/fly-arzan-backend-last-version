@@ -234,6 +234,34 @@ async function getCachedExchangeRates(apiKey: string) {
   return data;
 }
 
+// ─── Geolocation cache (per IP, 10 min TTL) ────────────────────────────────
+// Avoids hitting BigDataCloud for every page load from the same visitor.
+const geoCache = new Map<string, { data: unknown; timestamp: number }>();
+const GEO_CACHE_DURATION = 10 * 60 * 1000; // 10 minutes
+const GEO_CACHE_MAX_ENTRIES = 5000; // prevent unbounded growth
+
+async function getCachedGeoData(ipAddr: string, geoUrl: string) {
+  const cacheKey = ipAddr || "no-ip";
+  const cached = geoCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < GEO_CACHE_DURATION) {
+    return { data: cached.data, fromCache: true };
+  }
+
+  const response = await fetch(geoUrl);
+  if (!response.ok) {
+    return { data: null, response, fromCache: false };
+  }
+  const data = await response.json();
+
+  // Prune oldest entries if cache gets too big
+  if (geoCache.size >= GEO_CACHE_MAX_ENTRIES) {
+    const oldestKey = geoCache.keys().next().value;
+    if (oldestKey) geoCache.delete(oldestKey);
+  }
+  geoCache.set(cacheKey, { data, timestamp: Date.now() });
+  return { data, response, fromCache: false };
+}
+
 // ─── Main geo-currency endpoint ─────────────────────────────────────────────
 
 /*
@@ -257,23 +285,28 @@ app.get("/", async (c) => {
 
     const OPEN_EXCHANGE_API_KEY = process.env.OPEN_EXCHANGE_API_KEY;
 
-    // Fetch geo and exchange rates in parallel
-    const [geoResponse, exchangeData] = await Promise.all([
-      fetch(geoUrl),
+    // Fetch geo (cached per-IP) and exchange rates in parallel
+    const [geoResult, exchangeData] = await Promise.all([
+      getCachedGeoData(ipAddr, geoUrl),
       getCachedExchangeRates(OPEN_EXCHANGE_API_KEY || ""),
     ]);
 
-    if (!geoResponse.ok) {
-      const errorText = await geoResponse.text();
+    if (!geoResult.data) {
+      const errorText = geoResult.response
+        ? await geoResult.response.text().catch(() => "")
+        : "";
       console.error(
         "[geo-currency] BigDataCloud error:",
-        geoResponse.status,
+        geoResult.response?.status,
         errorText,
       );
       return c.json({ error: "Failed to fetch geolocation data" }, 500);
     }
 
-    const geoData = await geoResponse.json();
+    const geoData = geoResult.data as {
+      country?: { isoAlpha2?: string; name?: string };
+      [k: string]: unknown;
+    };
 
     // ── Step 3: Map response ──
     const countryCode: string | null = geoData.country?.isoAlpha2 || null;

@@ -1,5 +1,14 @@
+// ─── In-memory token cache (Amadeus tokens last ~30 min) ─────────────────────
+let _cachedToken: string | null = null;
+let _tokenExpiresAt = 0; // epoch ms
+
 // Amadeus Auth Token
 export const getAmadeusToken = async () => {
+  // Return cached token if still valid (with 60s safety buffer)
+  if (_cachedToken && Date.now() < _tokenExpiresAt - 60_000) {
+    return _cachedToken;
+  }
+
   const url = `${process.env.AMADEUS_BASE_URL}/v1/security/oauth2/token`;
 
   console.log("[Amadeus] Requesting token from:", url);
@@ -48,7 +57,7 @@ export const getAmadeusToken = async () => {
     );
   }
 
-  let json: { access_token?: string };
+  let json: { access_token?: string; expires_in?: number };
   try {
     json = JSON.parse(rawBody);
   } catch {
@@ -60,6 +69,13 @@ export const getAmadeusToken = async () => {
     throw new Error("Amadeus token response missing access_token");
   }
 
-  console.log("[Amadeus] ✅ Token obtained successfully");
+  // Cache token for subsequent calls (Amadeus default ~1799s)
+  const expiresIn = json.expires_in ?? 1799;
+  _cachedToken = json.access_token;
+  _tokenExpiresAt = Date.now() + expiresIn * 1000;
+
+  console.log(
+    `[Amadeus] ✅ Token obtained successfully (cached for ${expiresIn}s)`,
+  );
   return json.access_token;
 };
