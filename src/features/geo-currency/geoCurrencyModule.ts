@@ -240,7 +240,7 @@ const geoCache = new Map<string, { data: unknown; timestamp: number }>();
 const GEO_CACHE_DURATION = 10 * 60 * 1000; // 10 minutes
 const GEO_CACHE_MAX_ENTRIES = 5000; // prevent unbounded growth
 
-async function getCachedGeoData(ipAddr: string, geoUrl: string) {
+async function getCachedGeoData(ipAddr: string | undefined, geoUrl: string) {
   const cacheKey = ipAddr || "no-ip";
   const cached = geoCache.get(cacheKey);
   if (cached && Date.now() - cached.timestamp < GEO_CACHE_DURATION) {
@@ -303,10 +303,7 @@ app.get("/", async (c) => {
       return c.json({ error: "Failed to fetch geolocation data" }, 500);
     }
 
-    const geoData = geoResult.data as {
-      country?: { isoAlpha2?: string; name?: string };
-      [k: string]: unknown;
-    };
+    const geoData = geoResult.data as any;
 
     // ── Step 3: Map response ──
     const countryCode: string | null = geoData.country?.isoAlpha2 || null;
