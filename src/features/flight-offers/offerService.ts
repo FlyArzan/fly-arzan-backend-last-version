@@ -239,14 +239,25 @@ export const flightOfferService = {
 
     const url = `${FLIGHT_DATES_API}/flight-dates?${searchQueries.toString()}`;
 
+    console.log("[Amadeus] getFlexibleDatePrices → GET", url);
+
     try {
       const response = await fetch(url, {
         method: "GET",
         headers: { Authorization: `Bearer ${token}` },
       });
 
+      console.log(
+        "[Amadeus] getFlexibleDatePrices status:",
+        response.status,
+        response.statusText,
+      );
+
       if (response.ok) {
         const data = await response.json();
+        console.log(
+          `[Amadeus] ✅ getFlexibleDatePrices returned ${data?.data?.length ?? 0} entries`,
+        );
         return this.transformFlightDatesResponse(
           data,
           params.origin,
@@ -256,8 +267,9 @@ export const flightOfferService = {
 
       // If error, return empty data (no fallback)
       const errorText = await response.text();
-      console.log(
-        `Flight Cheapest Date Search failed (${response.status}): ${errorText}`,
+      console.error(
+        `[Amadeus] ❌ getFlexibleDatePrices failed (${response.status} ${response.statusText}):`,
+        errorText,
       );
       return {
         data: {},
@@ -269,7 +281,7 @@ export const flightOfferService = {
         },
       };
     } catch (error) {
-      console.error("Error fetching flight dates:", error);
+      console.error("[Amadeus] ❌ getFlexibleDatePrices exception:", error);
       return {
         data: {},
         meta: {
