@@ -33,6 +33,9 @@ export const auth = betterAuth({
     google: {
       clientId: process.env.GOOGLE_CLIENT_ID as string,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET as string,
+      // Always show the Google account chooser (better for shared devices /
+      // users with multiple accounts) instead of silently reusing a session.
+      prompt: "select_account",
     },
   },
   trustedOrigins: [
