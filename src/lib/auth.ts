@@ -38,6 +38,16 @@ export const auth = betterAuth({
       prompt: "select_account",
     },
   },
+  // Account linking: let a Google login attach to an existing account that has
+  // the same email. Google verifies email ownership, so it's a trusted provider
+  // and may link automatically — this is what lets existing email/password
+  // users (including admins) sign in with Google instead of erroring out.
+  account: {
+    accountLinking: {
+      enabled: true,
+      trustedProviders: ["google"],
+    },
+  },
   trustedOrigins: [
     process.env.APP_CLIENT_URL!,
     "http://localhost:5173",
