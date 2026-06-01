@@ -36,6 +36,13 @@ export const auth = betterAuth({
       // Always show the Google account chooser (better for shared devices /
       // users with multiple accounts) instead of silently reusing a session.
       prompt: "select_account",
+      // Refresh name + profile image from Google on every sign-in. Without this
+      // better-auth only writes the image when the user is first CREATED — so
+      // an existing email/password account that later links Google would never
+      // get its `image` populated. Only provider profile fields (name, image,
+      // email, emailVerified) are updated; `role` and other custom fields are
+      // left untouched.
+      overrideUserInfoOnSignIn: true,
     },
   },
   // Account linking: let a Google login attach to an existing account that has
