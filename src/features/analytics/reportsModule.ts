@@ -1,9 +1,12 @@
 import { Hono } from "hono";
 import { prisma } from "@/lib/prisma.js";
+import { requireAdmin } from "@/lib/auth.js";
 import { validateInput } from "@/lib/validateInput.js";
 import { reportsQuerySchema } from "@/schema/analyticsSchema.js";
 
 const app = new Hono();
+
+app.use("*", requireAdmin);
 
 const now = () => new Date();
 const subHours = (d: Date, h: number) =>
@@ -214,14 +217,14 @@ app.get("/top-routes", async (c) => {
   const start = q.startDate
     ? new Date(q.startDate as any)
     : q.range === "prev24h"
-    ? subHours(end, 48)
-    : subHours(end, 24);
+      ? subHours(end, 48)
+      : subHours(end, 24);
   const cutoff =
     q.startDate && q.endDate
       ? end
       : q.range === "prev24h"
-      ? subHours(end, 24)
-      : end;
+        ? subHours(end, 24)
+        : end;
 
   const top = await prisma.searchEvent.groupBy({
     by: ["origin", "destination"],
@@ -275,7 +278,7 @@ app.get("/top-routes", async (c) => {
     c.header("Content-Type", "text/csv; charset=utf-8");
     c.header(
       "Content-Disposition",
-      `attachment; filename=top-routes-${q.range ?? "last24h"}.csv`
+      `attachment; filename=top-routes-${q.range ?? "last24h"}.csv`,
     );
     return c.body(csv);
   }
@@ -313,7 +316,7 @@ app.get("/clickout-rate", async (c) => {
     c.header("Content-Type", "text/csv; charset=utf-8");
     c.header(
       "Content-Disposition",
-      `attachment; filename=clickout-rate-${q.range ?? "last24h"}.csv`
+      `attachment; filename=clickout-rate-${q.range ?? "last24h"}.csv`,
     );
     return c.body(csv);
   }
@@ -375,8 +378,8 @@ app.get("/engagement/series", async (c) => {
     range === "24h"
       ? subHours(end, 24)
       : range === "7d"
-      ? subHours(end, 24 * 7)
-      : subHours(end, 24 * 30);
+        ? subHours(end, 24 * 7)
+        : subHours(end, 24 * 30);
 
   // Define bucket granularity
   const bucketHours = range === "24h" ? 1 : 24;
@@ -471,7 +474,7 @@ app.get("/geo/regions", async (c) => {
   const group = (qs.group || "region") as "region" | "country";
   const top = Math.max(
     1,
-    Math.min(12, parseInt((qs.top as string) || "6", 10))
+    Math.min(12, parseInt((qs.top as string) || "6", 10)),
   );
 
   const rows = await prisma.searchEvent.findMany({
@@ -564,7 +567,7 @@ app.get("/geo/regions", async (c) => {
 app.get("/trends/searches", async (c) => {
   const months = Math.max(
     1,
-    Math.min(24, parseInt(c.req.query("months") || "12", 10))
+    Math.min(24, parseInt(c.req.query("months") || "12", 10)),
   );
   const end = now();
   const start = new Date(end.getFullYear(), end.getMonth() - (months - 1), 1);
@@ -602,7 +605,7 @@ app.get("/trends/searches", async (c) => {
       month: r.month.toLocaleString("en-US", { month: "short" }),
       searches: r.searches,
       clickouts: r.clickouts,
-    }))
+    })),
   );
 });
 
@@ -613,7 +616,7 @@ app.get("/trends/searches", async (c) => {
 app.get("/trends/prices", async (c) => {
   const months = Math.max(
     1,
-    Math.min(24, parseInt(c.req.query("months") || "12", 10))
+    Math.min(24, parseInt(c.req.query("months") || "12", 10)),
   );
   const end = now();
   const start = new Date(end.getFullYear(), end.getMonth() - (months - 1), 1);
@@ -631,7 +634,7 @@ app.get("/trends/prices", async (c) => {
     (_, i) => ({
       month: new Date(start.getFullYear(), start.getMonth() + i, 1),
       values: [],
-    })
+    }),
   );
   for (const cl of clicks) {
     const idx = mapIndex(cl.createdAt);
@@ -643,12 +646,12 @@ app.get("/trends/prices", async (c) => {
       month: r.month.toLocaleString("en-US", { month: "short" }),
       avgPrice: r.values.length
         ? Math.round(
-            (r.values.reduce((a, b) => a + b, 0) / r.values.length) * 100
+            (r.values.reduce((a, b) => a + b, 0) / r.values.length) * 100,
           ) / 100
         : 0,
       minPrice: r.values.length ? Math.min(...r.values) : 0,
       maxPrice: r.values.length ? Math.max(...r.values) : 0,
-    }))
+    })),
   );
 });
 
@@ -673,15 +676,15 @@ app.get("/engagement/summary", async (c) => {
     range === "24h"
       ? subHours(end, 24)
       : range === "7d"
-      ? subHours(end, 24 * 7)
-      : subHours(end, 24 * 30);
+        ? subHours(end, 24 * 7)
+        : subHours(end, 24 * 30);
   const prevEnd = start;
   const prevStart =
     range === "24h"
       ? subHours(prevEnd, 24)
       : range === "7d"
-      ? subHours(prevEnd, 24 * 7)
-      : subHours(prevEnd, 24 * 30);
+        ? subHours(prevEnd, 24 * 7)
+        : subHours(prevEnd, 24 * 30);
 
   // Compute totals for current and previous window
   const [

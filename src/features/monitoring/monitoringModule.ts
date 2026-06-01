@@ -1,8 +1,18 @@
 import { Hono } from "hono";
 import { performance } from "node:perf_hooks";
 import { prisma } from "@/lib/prisma.js";
+import { requireAdmin } from "@/lib/auth.js";
 
 const app = new Hono();
+
+// Internal service key middleware — only trusted back-end callers may reach these routes
+const requireInternalKey = async (c: any, next: () => Promise<void>) => {
+  const key = c.req.header("x-internal-key");
+  if (!key || key !== process.env.INTERNAL_API_KEY) {
+    return c.json({ error: "Forbidden" }, 403);
+  }
+  await next();
+};
 
 // Track server start time for uptime
 const serverStartTime = Date.now();
@@ -83,12 +93,53 @@ setInterval(() => {
   void pollAmadeus();
 }, POLL_INTERVAL_MS);
 
-// Simple in-memory quota tracking (replace with Redis/DB for production)
-let quotaUsage = {
-  daily: 0,
-  dailyLimit: 1000, // Example limit
-  lastReset: new Date().toISOString().split("T")[0], // YYYY-MM-DD
-};
+// --- DB-backed quota helpers ---
+async function readQuota(): Promise<{
+  daily: number;
+  dailyLimit: number;
+  lastReset: string;
+}> {
+  const today = new Date().toISOString().split("T")[0];
+  const [dailyRec, limitRec, resetRec] = await Promise.all([
+    prisma.setting.upsert({
+      where: { key: "quota_daily" },
+      update: {},
+      create: { key: "quota_daily", value: "0" },
+    }),
+    prisma.setting.upsert({
+      where: { key: "quota_daily_limit" },
+      update: {},
+      create: { key: "quota_daily_limit", value: "2000" },
+    }),
+    prisma.setting.upsert({
+      where: { key: "quota_last_reset" },
+      update: {},
+      create: { key: "quota_last_reset", value: today },
+    }),
+  ]);
+
+  let daily = parseInt(dailyRec.value, 10);
+  const dailyLimit = parseInt(limitRec.value, 10);
+  let lastReset = resetRec.value;
+
+  // Daily reset: if stored date is behind today, zero the counter
+  if (lastReset !== today) {
+    daily = 0;
+    lastReset = today;
+    await Promise.all([
+      prisma.setting.update({
+        where: { key: "quota_daily" },
+        data: { value: "0" },
+      }),
+      prisma.setting.update({
+        where: { key: "quota_last_reset" },
+        data: { value: today },
+      }),
+    ]);
+  }
+
+  return { daily, dailyLimit, lastReset };
+}
 
 // Track last Amadeus API check (compat field used by alerts endpoint)
 let lastAmadeusCheck = {
@@ -140,15 +191,10 @@ app.get("/health", async (c) => {
   @route  GET /quota
   @desc   Returns current API quota usage and thresholds
 */
-app.get("/quota", async (c) => {
-  // Reset daily counter if new day
-  const today = new Date().toISOString().split("T")[0];
-  if (quotaUsage.lastReset !== today) {
-    quotaUsage.daily = 0;
-    quotaUsage.lastReset = today;
-  }
+app.get("/quota", requireAdmin, async (c) => {
+  const { daily, dailyLimit, lastReset } = await readQuota();
 
-  const usagePercent = (quotaUsage.daily / quotaUsage.dailyLimit) * 100;
+  const usagePercent = (daily / dailyLimit) * 100;
   let alert: { level: string; message: string } | null = null;
 
   if (usagePercent >= 100) {
@@ -158,11 +204,11 @@ app.get("/quota", async (c) => {
   }
 
   return c.json({
-    daily: quotaUsage.daily,
-    limit: quotaUsage.dailyLimit,
+    daily,
+    limit: dailyLimit,
     percent: Math.round(usagePercent),
     alert,
-    lastReset: quotaUsage.lastReset,
+    lastReset,
   });
 });
 
@@ -170,30 +216,29 @@ app.get("/quota", async (c) => {
   @route  POST /quota/increment
   @desc   Internal endpoint to increment quota usage (called by offerService)
 */
-app.post("/quota/increment", async (c) => {
-  const today = new Date().toISOString().split("T")[0];
-  if (quotaUsage.lastReset !== today) {
-    quotaUsage.daily = 0;
-    quotaUsage.lastReset = today;
-  }
+app.post("/quota/increment", requireInternalKey, async (c) => {
+  const { daily: current, dailyLimit } = await readQuota();
 
-  quotaUsage.daily += 1;
+  const newDaily = current + 1;
+  await prisma.setting.update({
+    where: { key: "quota_daily" },
+    data: { value: String(newDaily) },
+  });
 
-  // Check if we crossed thresholds and should trigger alerts
-  const usagePercent = (quotaUsage.daily / quotaUsage.dailyLimit) * 100;
+  const usagePercent = (newDaily / dailyLimit) * 100;
   if (usagePercent >= 100 || usagePercent >= 80) {
     // TODO: Trigger alert (email/Slack) - implement in alertService
     console.warn(`[ALERT] API quota at ${Math.round(usagePercent)}%`);
   }
 
-  return c.json({ ok: true, daily: quotaUsage.daily });
+  return c.json({ ok: true, daily: newDaily });
 });
 
 /*
   @route  POST /amadeus/status
   @desc   Update Amadeus API status (called by offerService on success/failure)
 */
-app.post("/amadeus/status", async (c) => {
+app.post("/amadeus/status", requireInternalKey, async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const { status, error } = body;
 
@@ -219,16 +264,12 @@ app.post("/amadeus/status", async (c) => {
   @route  GET /alerts
   @desc   Returns active alerts (quota, outages)
 */
-app.get("/alerts", async (c) => {
+app.get("/alerts", requireAdmin, async (c) => {
   const alerts: any[] = [];
 
-  // Check quota
-  const today = new Date().toISOString().split("T")[0];
-  if (quotaUsage.lastReset !== today) {
-    quotaUsage.daily = 0;
-    quotaUsage.lastReset = today;
-  }
-  const usagePercent = (quotaUsage.daily / quotaUsage.dailyLimit) * 100;
+  // Check quota (DB-backed)
+  const { daily, dailyLimit } = await readQuota();
+  const usagePercent = (daily / dailyLimit) * 100;
 
   if (usagePercent >= 100) {
     alerts.push({

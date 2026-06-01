@@ -329,6 +329,13 @@ model cmsPage {
   @@index([slug])
 }
 
+/// Generic key-value settings store (used for persisted counters like API quota)
+model Setting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
 /// Analytics: records of click-outs to partners
 model clickOutEvent {
   id          String   @id @default(ulid())

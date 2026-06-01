@@ -5,11 +5,11 @@ import { prisma } from "@/lib/prisma.js";
 const app = new Hono();
 
 /**
- * @route GET /api/admin/monitoring/system-logs
+ * @route GET /api/admin/system-logs
  * @desc Get system logs aggregated from various sources
  * @access Admin only
  */
-app.get("/system-logs", requireAdmin, async (c) => {
+app.get("/", requireAdmin, async (c) => {
   const limit = parseInt(c.req.query("limit") || "50");
   const offset = parseInt(c.req.query("offset") || "0");
   const level = c.req.query("level") || "all";
@@ -157,11 +157,11 @@ app.get("/system-logs", requireAdmin, async (c) => {
 });
 
 /**
- * @route GET /api/admin/monitoring/system-logs/stats
+ * @route GET /api/admin/system-logs/stats
  * @desc Get system logs statistics
  * @access Admin only
  */
-app.get("/system-logs/stats", requireAdmin, async (c) => {
+app.get("/stats", requireAdmin, async (c) => {
   try {
     const [searchCount, sessionCount, bannedCount] = await Promise.all([
       prisma.searchEvent.count(),

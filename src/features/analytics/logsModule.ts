@@ -1,7 +1,10 @@
 import { Hono } from "hono";
 import { prisma } from "@/lib/prisma.js";
+import { requireAdmin } from "@/lib/auth.js";
 
 const app = new Hono();
+
+app.use("*", requireAdmin);
 
 /*
   @route  GET /search-logs
@@ -29,7 +32,10 @@ app.get("/search-logs", async (c) => {
   if (c.req.query("origin"))
     where.origin = { contains: c.req.query("origin")!, mode: "insensitive" };
   if (c.req.query("destination"))
-    where.destination = { contains: c.req.query("destination")!, mode: "insensitive" };
+    where.destination = {
+      contains: c.req.query("destination")!,
+      mode: "insensitive",
+    };
   if (c.req.query("tripType")) where.tripType = c.req.query("tripType");
 
   // Device filters
@@ -41,7 +47,8 @@ app.get("/search-logs", async (c) => {
   if (c.req.query("country")) where.country = c.req.query("country");
 
   // Passenger filters
-  if (c.req.query("travelClass")) where.travelClass = c.req.query("travelClass");
+  if (c.req.query("travelClass"))
+    where.travelClass = c.req.query("travelClass");
 
   const [logs, total] = await Promise.all([
     prisma.searchEvent.findMany({
@@ -88,48 +95,56 @@ app.get("/search-logs", async (c) => {
 */
 app.get("/filter-options", async (c) => {
   // Get unique values for each filterable field
-  const [origins, destinations, tripTypes, browsers, oses, deviceTypes, countries, travelClasses] =
-    await Promise.all([
-      prisma.searchEvent.findMany({
-        select: { origin: true },
-        distinct: ["origin"],
-        orderBy: { origin: "asc" },
-      }),
-      prisma.searchEvent.findMany({
-        select: { destination: true },
-        distinct: ["destination"],
-        orderBy: { destination: "asc" },
-      }),
-      prisma.searchEvent.findMany({
-        select: { tripType: true },
-        distinct: ["tripType"],
-      }),
-      prisma.searchEvent.findMany({
-        select: { browser: true },
-        distinct: ["browser"],
-        where: { browser: { not: null } },
-      }),
-      prisma.searchEvent.findMany({
-        select: { os: true },
-        distinct: ["os"],
-        where: { os: { not: null } },
-      }),
-      prisma.searchEvent.findMany({
-        select: { deviceType: true },
-        distinct: ["deviceType"],
-        where: { deviceType: { not: null } },
-      }),
-      prisma.searchEvent.findMany({
-        select: { country: true },
-        distinct: ["country"],
-        where: { country: { not: null } },
-      }),
-      prisma.searchEvent.findMany({
-        select: { travelClass: true },
-        distinct: ["travelClass"],
-        where: { travelClass: { not: null } },
-      }),
-    ]);
+  const [
+    origins,
+    destinations,
+    tripTypes,
+    browsers,
+    oses,
+    deviceTypes,
+    countries,
+    travelClasses,
+  ] = await Promise.all([
+    prisma.searchEvent.findMany({
+      select: { origin: true },
+      distinct: ["origin"],
+      orderBy: { origin: "asc" },
+    }),
+    prisma.searchEvent.findMany({
+      select: { destination: true },
+      distinct: ["destination"],
+      orderBy: { destination: "asc" },
+    }),
+    prisma.searchEvent.findMany({
+      select: { tripType: true },
+      distinct: ["tripType"],
+    }),
+    prisma.searchEvent.findMany({
+      select: { browser: true },
+      distinct: ["browser"],
+      where: { browser: { not: null } },
+    }),
+    prisma.searchEvent.findMany({
+      select: { os: true },
+      distinct: ["os"],
+      where: { os: { not: null } },
+    }),
+    prisma.searchEvent.findMany({
+      select: { deviceType: true },
+      distinct: ["deviceType"],
+      where: { deviceType: { not: null } },
+    }),
+    prisma.searchEvent.findMany({
+      select: { country: true },
+      distinct: ["country"],
+      where: { country: { not: null } },
+    }),
+    prisma.searchEvent.findMany({
+      select: { travelClass: true },
+      distinct: ["travelClass"],
+      where: { travelClass: { not: null } },
+    }),
+  ]);
 
   return c.json({
     origins: origins.map((o) => o.origin),
@@ -162,13 +177,17 @@ app.get("/search-logs/export", async (c) => {
   if (c.req.query("origin"))
     where.origin = { contains: c.req.query("origin")!, mode: "insensitive" };
   if (c.req.query("destination"))
-    where.destination = { contains: c.req.query("destination")!, mode: "insensitive" };
+    where.destination = {
+      contains: c.req.query("destination")!,
+      mode: "insensitive",
+    };
   if (c.req.query("tripType")) where.tripType = c.req.query("tripType");
   if (c.req.query("os")) where.os = c.req.query("os");
   if (c.req.query("browser")) where.browser = c.req.query("browser");
   if (c.req.query("deviceType")) where.deviceType = c.req.query("deviceType");
   if (c.req.query("country")) where.country = c.req.query("country");
-  if (c.req.query("travelClass")) where.travelClass = c.req.query("travelClass");
+  if (c.req.query("travelClass"))
+    where.travelClass = c.req.query("travelClass");
 
   const logs = await prisma.searchEvent.findMany({
     where,
@@ -209,7 +228,9 @@ app.get("/search-logs/export", async (c) => {
     log.ipMasked || "",
   ]);
 
-  const csv = [headers, ...rows].map((row) => row.map((cell) => `"${cell}"`).join(",")).join("\n");
+  const csv = [headers, ...rows]
+    .map((row) => row.map((cell) => `"${cell}"`).join(","))
+    .join("\n");
 
   return c.text(csv, 200, {
     "Content-Type": "text/csv",
