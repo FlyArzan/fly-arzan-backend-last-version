@@ -37,9 +37,6 @@ export const auth = betterAuth({
     google: {
       clientId: process.env.GOOGLE_CLIENT_ID as string,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET as string,
-      // Always show the Google account chooser (better for shared devices /
-      // users with multiple accounts) instead of silently reusing a session.
-      prompt: "select_account",
       // Refresh name + profile image from Google on every sign-in. Without this
       // better-auth only writes the image when the user is first CREATED — so
       // an existing email/password account that later links Google would never
