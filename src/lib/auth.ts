@@ -29,6 +29,10 @@ export const auth = betterAuth({
     },
   },
   // Social OAuth providers
+  session: {
+    expiresIn: 60 * 60 * 24 * 30,
+    updateAge: 60 * 60 * 24,
+  },
   socialProviders: {
     google: {
       clientId: process.env.GOOGLE_CLIENT_ID as string,
