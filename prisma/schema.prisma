@@ -369,3 +369,76 @@ model clickOutEvent {
   @@index([utmSource])
   @@index([sessionId])
 }
+
+/// Travel Content Hub: individual articles
+model article {
+  id              String            @id @default(ulid())
+  slug            String            @unique
+  title           String
+  featuredImage   String?
+  imageAlt        String?
+  body            String            @db.Text
+  shortSummary    String?           @db.Text
+  metaTitle       String?
+  metaDescription String?           @db.Text
+  keywords        String?
+  faqs            Json?             // [{question, answer}]
+  relatedArticles Json?             // string[] of slugs
+  status          String            @default("draft") // draft | published
+  authorName      String?
+  readingTime     Int?
+  publishedAt     DateTime?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  updatedBy       String?
+  articleCategory articleCategory[]
+
+  @@index([status])
+  @@index([publishedAt])
+}
+
+/// Travel Content Hub: article categories
+model articleCategory {
+  id          String    @id @default(ulid())
+  slug        String    @unique
+  name        String
+  description String?
+  icon        String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  article     article[]
+
+  @@index([slug])
+}
+
+/// Visa Information Database: per-country visa pages
+model visaInfo {
+  id                      String   @id @default(ulid())
+  countrySlug             String   @unique
+  countryName             String
+  countryCode             String?
+  flagImage               String?
+  destinationImage        String?
+  travelIntroduction      String?  @db.Text
+  visaRequired            String?
+  eVisaAvailable          String?
+  visaOnArrival           String?
+  passportValidity        String?
+  typicalProcessingTime   String?
+  approximateVisaFee      String?
+  officialApplicationLink String?  @db.Text
+  travelWarning           String?  @db.Text
+  detailedSections        Json?    // {visaTypes, applicationSteps, officialLinks, travelWarnings}
+  requiredDocuments       Json?    // string[]
+  faqs                    Json?    // [{question, answer}]
+  metaTitle               String?
+  metaDescription         String?  @db.Text
+  status                  String   @default("draft") // draft | published
+  updatedBy               String?
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  @@index([countryName])
+  @@index([status])
+  @@index([countryCode])
+}
