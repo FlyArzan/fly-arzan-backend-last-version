@@ -48,6 +48,32 @@ app.get("/", async (c: Context) => {
   return c.json({ countries, total, page, limit });
 });
 
+// Dynamic XML sitemap — returns all published visa country pages for SEO
+// crawlers. Must be registered BEFORE the "/:slug" route below, otherwise
+// Hono matches "/sitemap.xml" against "/:slug" and returns a 404.
+app.get("/sitemap.xml", async (c: Context) => {
+  const countries = await prisma.visaInfo.findMany({
+    where: { status: "published" },
+    select: { countrySlug: true, updatedAt: true },
+    orderBy: { countryName: "asc" },
+  });
+
+  const urls = countries
+    .map((country) => {
+      const loc = `https://flyarzan.com/visa-information/${country.countrySlug}`;
+      const lastmod = country.updatedAt.toISOString().split("T")[0];
+      return `  <url>\n    <loc>${loc}</loc>\n    <lastmod>${lastmod}</lastmod>\n    <changefreq>monthly</changefreq>\n    <priority>0.7</priority>\n  </url>`;
+    })
+    .join("\n");
+
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}\n</urlset>`;
+
+  return c.body(xml, 200, {
+    "Content-Type": "application/xml; charset=utf-8",
+    "Cache-Control": "public, max-age=3600",
+  });
+});
+
 // Single published visa country by slug
 app.get("/:slug", async (c: Context) => {
   const slug = c.req.param("slug");
