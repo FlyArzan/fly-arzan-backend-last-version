@@ -98,6 +98,37 @@ app.get("/categories", async (c: Context) => {
   );
 });
 
+// Dynamic XML sitemap — returns all published articles for SEO crawlers.
+// IMPORTANT: must be registered BEFORE the "/:slug" route below, otherwise
+// Hono matches "/sitemap.xml" against "/:slug" and returns a 404.
+app.get("/sitemap.xml", async (c: Context) => {
+  const articles = await prisma.article.findMany({
+    where: { status: "published" },
+    select: {
+      slug: true,
+      updatedAt: true,
+      articleCategory: { select: { slug: true }, take: 1 },
+    },
+    orderBy: { publishedAt: "desc" },
+  });
+
+  const urls = articles
+    .map((a) => {
+      const catSlug = a.articleCategory[0]?.slug || "general-travel-advice";
+      const loc = `https://flyarzan.com/travel-guides/${catSlug}/${a.slug}`;
+      const lastmod = a.updatedAt.toISOString().split("T")[0];
+      return `  <url>\n    <loc>${loc}</loc>\n    <lastmod>${lastmod}</lastmod>\n    <changefreq>monthly</changefreq>\n    <priority>0.7</priority>\n  </url>`;
+    })
+    .join("\n");
+
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}\n</urlset>`;
+
+  return c.body(xml, 200, {
+    "Content-Type": "application/xml; charset=utf-8",
+    "Cache-Control": "public, max-age=3600",
+  });
+});
+
 // Single published article by slug
 app.get("/:slug", async (c: Context) => {
   const slug = c.req.param("slug");
@@ -300,35 +331,6 @@ app.delete("/admin/:id", requireAdmin, async (c: Context) => {
   if (!existing) return c.json({ message: "Not found" }, 404);
   await prisma.article.delete({ where: { id } });
   return c.json({ ok: true });
-});
-
-// Dynamic XML sitemap — returns all published articles for SEO crawlers
-app.get("/sitemap.xml", async (c: Context) => {
-  const articles = await prisma.article.findMany({
-    where: { status: "published" },
-    select: {
-      slug: true,
-      updatedAt: true,
-      articleCategory: { select: { slug: true }, take: 1 },
-    },
-    orderBy: { publishedAt: "desc" },
-  });
-
-  const urls = articles
-    .map((a) => {
-      const catSlug = a.articleCategory[0]?.slug || "general-travel-advice";
-      const loc = `https://flyarzan.com/travel-guides/${catSlug}/${a.slug}`;
-      const lastmod = a.updatedAt.toISOString().split("T")[0];
-      return `  <url>\n    <loc>${loc}</loc>\n    <lastmod>${lastmod}</lastmod>\n    <changefreq>monthly</changefreq>\n    <priority>0.7</priority>\n  </url>`;
-    })
-    .join("\n");
-
-  const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}\n</urlset>`;
-
-  return c.body(xml, 200, {
-    "Content-Type": "application/xml; charset=utf-8",
-    "Cache-Control": "public, max-age=3600",
-  });
 });
 
 // Seed default categories
