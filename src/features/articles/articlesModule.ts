@@ -337,7 +337,7 @@ app.delete("/admin/:id", requireAdmin, async (c: Context) => {
 app.post("/admin/seed-categories", requireAdmin, async (c: Context) => {
   const defaults = [
     { slug: "travel-news", name: "Travel News", description: "Latest travel updates, airline news, airport updates and important travel changes.", icon: "Newspaper" },
-    { slug: "travel-blogs", name: "Travel Blogs", description: "Personal travel stories, trip reports and destination experiences.", icon: "BookOpen" },
+    { slug: "travel-blogs", name: "Useful Articles", description: "Helpful travel articles, trip reports and destination experiences.", icon: "BookOpen" },
     { slug: "travel-tips", name: "Travel Tips", description: "Practical tips and advice to make your travel easier and more enjoyable.", icon: "Lightbulb" },
     { slug: "travel-feedback", name: "Travel Feedback", description: "Customer experiences and travel reviews.", icon: "MessageSquare" },
     { slug: "travel-guidelines", name: "Travel Guidelines", description: "Essential travel rules, regulations and guidelines for travellers.", icon: "ClipboardList" },
