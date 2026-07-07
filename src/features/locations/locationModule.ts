@@ -7,6 +7,36 @@ import { paginationQuerySchema } from "@/schema/paginationSchema.js";
 const app = new Hono();
 
 /*
+  @route    GET: /locations/countries
+  @access   public
+  @desc     Full ISO country list (iso, name) for admin country pickers
+*/
+app.get("/countries", async (c) => {
+  const countries = await locationService.getCountryList();
+  return c.json(countries);
+});
+
+/*
+  @route    GET: /locations/primary-airport
+  @access   public
+  @desc     Best-guess primary airport (capital city, else largest) for a country.
+            Tries the ISO-2 country code first, then falls back to matching by
+            country name (the code on a visa record isn't always strict ISO-3166).
+*/
+app.get("/primary-airport", async (c) => {
+  const countryCode = c.req.query("countryCode");
+  const countryName = c.req.query("countryName");
+  if (!countryCode && !countryName) {
+    return c.json({ message: "countryCode or countryName is required" }, 400);
+  }
+  const result = await locationService.getPrimaryAirportForCountry(countryCode, countryName);
+  if (!result) {
+    return c.json({ message: "No airport found for this country" }, 404);
+  }
+  return c.json(result);
+});
+
+/*
   @route    GET: /locations
   @access   private
   @desc     Get city locations (With airports, countries, iataCode, etc)

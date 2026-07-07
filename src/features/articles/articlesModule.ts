@@ -2,8 +2,16 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 import { prisma } from "@/lib/prisma.js";
 import { requireAdmin } from "@/lib/auth.js";
+import { toProxyUrl } from "@/lib/s3.js";
 
 const app = new Hono();
+
+// The bucket has no public-read access, so every stored image is served
+// through our own /api/media proxy — rewritten here at read time.
+const withProxiedImage = <T extends { featuredImage?: string | null }>(article: T): T => ({
+  ...article,
+  featuredImage: toProxyUrl(article.featuredImage),
+});
 
 // ============================================
 // PUBLIC ENDPOINTS
@@ -53,7 +61,7 @@ app.get("/", async (c: Context) => {
     prisma.article.count({ where }),
   ]);
 
-  return c.json({ articles, total, page, limit });
+  return c.json({ articles: articles.map(withProxiedImage), total, page, limit });
 });
 
 // Featured articles (newest 6 published)
@@ -75,7 +83,7 @@ app.get("/featured", async (c: Context) => {
     orderBy: { publishedAt: "desc" },
     take: 6,
   });
-  return c.json(articles);
+  return c.json(articles.map(withProxiedImage));
 });
 
 // All categories with article counts
@@ -112,10 +120,11 @@ app.get("/sitemap.xml", async (c: Context) => {
     orderBy: { publishedAt: "desc" },
   });
 
+  const siteUrl = (process.env.APP_CLIENT_URL || "https://flyarzan.com").replace(/\/$/, "");
   const urls = articles
     .map((a) => {
       const catSlug = a.articleCategory[0]?.slug || "general-travel-advice";
-      const loc = `https://flyarzan.com/travel-guides/${catSlug}/${a.slug}`;
+      const loc = `${siteUrl}/travel-guides/${catSlug}/${a.slug}`;
       const lastmod = a.updatedAt.toISOString().split("T")[0];
       return `  <url>\n    <loc>${loc}</loc>\n    <lastmod>${lastmod}</lastmod>\n    <changefreq>monthly</changefreq>\n    <priority>0.7</priority>\n  </url>`;
     })
@@ -137,7 +146,7 @@ app.get("/:slug", async (c: Context) => {
     include: { articleCategory: { select: { slug: true, name: true } } },
   });
   if (!article) return c.json({ message: "Article not found" }, 404);
-  return c.json(article);
+  return c.json(withProxiedImage(article));
 });
 
 // ============================================
@@ -192,7 +201,7 @@ app.get("/admin/:id", requireAdmin, async (c: Context) => {
     include: { articleCategory: true },
   });
   if (!article) return c.json({ message: "Not found" }, 404);
-  return c.json(article);
+  return c.json(withProxiedImage(article));
 });
 
 // Create article
@@ -251,7 +260,7 @@ app.post("/admin", requireAdmin, async (c: Context) => {
     include: { articleCategory: true },
   });
 
-  return c.json(article, 201);
+  return c.json(withProxiedImage(article), 201);
 });
 
 // Update article
@@ -321,7 +330,7 @@ app.put("/admin/:id", requireAdmin, async (c: Context) => {
     include: { articleCategory: true },
   });
 
-  return c.json(article);
+  return c.json(withProxiedImage(article));
 });
 
 // Delete article

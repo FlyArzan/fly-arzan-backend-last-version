@@ -29,6 +29,7 @@ import airportModule from "@/features/airports/airportModule.js";
 import articlesModule from "@/features/articles/articlesModule.js";
 import visaModule from "@/features/visa/visaModule.js";
 import uploadsModule from "@/features/uploads/uploadsModule.js";
+import mediaModule from "@/features/media/mediaModule.js";
 import { initWebSocket } from "@/lib/websocket.js";
 
 // Hono init with typed variables for session
@@ -41,6 +42,17 @@ const app = new Hono<{
 
 // Logger
 app.use(logger());
+
+// Media (article/visa images) must be embeddable cross-origin — e.g. the
+// frontend on localhost:5173 or flyarzan.com loading an <img> from this API's
+// own origin. Registered before the general secureHeaders() below so its
+// post-request header write (which runs outermost-last) wins over the
+// default same-origin CORP that would otherwise silently block the <img>
+// from rendering even though the URL loads fine when opened directly.
+app.use(
+  "/media/*",
+  secureHeaders({ crossOriginResourcePolicy: "cross-origin" }),
+);
 
 // Secure headers
 app.use(secureHeaders());
@@ -151,6 +163,7 @@ app.route("/admin/articles", articlesModule);
 app.route("/visa-info", visaModule);
 app.route("/admin/visa", visaModule);
 app.route("/admin/uploads", uploadsModule);
+app.route("/media", mediaModule);
 
 // Not found
 app.notFound((c) => {

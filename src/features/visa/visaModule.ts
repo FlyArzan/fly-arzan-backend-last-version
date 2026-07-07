@@ -2,8 +2,24 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 import { prisma } from "@/lib/prisma.js";
 import { requireAdmin } from "@/lib/auth.js";
+import { toProxyUrl } from "@/lib/s3.js";
 
 const app = new Hono();
+
+// The bucket has no public-read access, so every stored image is served
+// through our own /api/media proxy — rewritten here at read time.
+const withProxiedFlag = <T extends { flagImage?: string | null }>(country: T): T => ({
+  ...country,
+  flagImage: toProxyUrl(country.flagImage),
+});
+
+const withProxiedImages = <T extends { flagImage?: string | null; destinationImage?: string | null }>(
+  country: T,
+): T => ({
+  ...country,
+  flagImage: toProxyUrl(country.flagImage),
+  destinationImage: toProxyUrl(country.destinationImage),
+});
 
 // ============================================
 // PUBLIC ENDPOINTS
@@ -45,7 +61,7 @@ app.get("/", async (c: Context) => {
     prisma.visaInfo.count({ where }),
   ]);
 
-  return c.json({ countries, total, page, limit });
+  return c.json({ countries: countries.map(withProxiedFlag), total, page, limit });
 });
 
 // Dynamic XML sitemap — returns all published visa country pages for SEO
@@ -58,9 +74,10 @@ app.get("/sitemap.xml", async (c: Context) => {
     orderBy: { countryName: "asc" },
   });
 
+  const siteUrl = (process.env.APP_CLIENT_URL || "https://flyarzan.com").replace(/\/$/, "");
   const urls = countries
     .map((country) => {
-      const loc = `https://flyarzan.com/visa-information/${country.countrySlug}`;
+      const loc = `${siteUrl}/visa-information/${country.countrySlug}`;
       const lastmod = country.updatedAt.toISOString().split("T")[0];
       return `  <url>\n    <loc>${loc}</loc>\n    <lastmod>${lastmod}</lastmod>\n    <changefreq>monthly</changefreq>\n    <priority>0.7</priority>\n  </url>`;
     })
@@ -81,7 +98,7 @@ app.get("/:slug", async (c: Context) => {
     where: { countrySlug: slug, status: "published" },
   });
   if (!country) return c.json({ message: "Country not found" }, 404);
-  return c.json(country);
+  return c.json(withProxiedImages(country));
 });
 
 // ============================================
@@ -123,7 +140,7 @@ app.get("/admin/list", requireAdmin, async (c: Context) => {
     prisma.visaInfo.count({ where }),
   ]);
 
-  return c.json({ countries, total, page, limit });
+  return c.json({ countries: countries.map(withProxiedFlag), total, page, limit });
 });
 
 // Get single visa country by id (admin)
@@ -131,7 +148,7 @@ app.get("/admin/:id", requireAdmin, async (c: Context) => {
   const id = c.req.param("id");
   const country = await prisma.visaInfo.findUnique({ where: { id } });
   if (!country) return c.json({ message: "Not found" }, 404);
-  return c.json(country);
+  return c.json(withProxiedImages(country));
 });
 
 // Create visa country
@@ -174,7 +191,7 @@ app.post("/admin", requireAdmin, async (c: Context) => {
     },
   });
 
-  return c.json(country, 201);
+  return c.json(withProxiedImages(country), 201);
 });
 
 // Update visa country
@@ -206,7 +223,7 @@ app.put("/admin/:id", requireAdmin, async (c: Context) => {
   }
 
   const country = await prisma.visaInfo.update({ where: { id }, data });
-  return c.json(country);
+  return c.json(withProxiedImages(country));
 });
 
 // Delete visa country
