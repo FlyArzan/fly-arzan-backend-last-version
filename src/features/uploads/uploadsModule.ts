@@ -8,13 +8,15 @@ import { s3, S3_BUCKET, isS3Configured, publicUrlForKey } from "@/lib/s3.js";
 
 const app = new Hono();
 
-// Only images, and only the extensions we can safely serve inline.
+// Images, plus PDF for the "PDF article" content type — only the extensions
+// we can safely serve inline.
 const ALLOWED_CONTENT_TYPES: Record<string, string> = {
   "image/jpeg": "jpg",
   "image/png": "png",
   "image/webp": "webp",
   "image/gif": "gif",
   "image/avif": "avif",
+  "application/pdf": "pdf",
 };
 
 // Uploads are confined to these folders — both for organisation and so the
@@ -23,6 +25,7 @@ const ALLOWED_FOLDERS = new Set([
   "articles",
   "visa-flags",
   "visa-destinations",
+  "article-documents",
 ]);
 
 const PRESIGN_EXPIRY_SECONDS = 120;
@@ -65,7 +68,7 @@ app.post("/presign", requireAdmin, async (c: Context) => {
   const ext = contentType ? ALLOWED_CONTENT_TYPES[contentType] : undefined;
   if (!contentType || !ext) {
     return c.json(
-      { message: "Unsupported file type. Allowed: JPEG, PNG, WebP, GIF, AVIF." },
+      { message: "Unsupported file type. Allowed: JPEG, PNG, WebP, GIF, AVIF, PDF." },
       400,
     );
   }

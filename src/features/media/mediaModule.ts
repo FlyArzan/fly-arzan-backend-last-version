@@ -6,7 +6,12 @@ import { s3, S3_BUCKET, isS3Configured } from "@/lib/s3.js";
 const app = new Hono();
 
 // Mirrors the folders uploadsModule.ts allows uploads into.
-const ALLOWED_FOLDERS = new Set(["articles", "visa-flags", "visa-destinations"]);
+const ALLOWED_FOLDERS = new Set([
+  "articles",
+  "visa-flags",
+  "visa-destinations",
+  "article-documents",
+]);
 
 /**
  * Streams a stored image back through our own authenticated S3 credentials.

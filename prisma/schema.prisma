@@ -375,9 +375,11 @@ model article {
   id              String            @id @default(ulid())
   slug            String            @unique
   title           String
+  articleType     String            @default("article") // article | pdf
+  pdfFile         String?           @db.Text
   featuredImage   String?
   imageAlt        String?
-  body            String            @db.Text
+  body            String?           @db.Text // not used when articleType = "pdf"
   shortSummary    String?           @db.Text
   metaTitle       String?
   metaDescription String?           @db.Text
@@ -385,6 +387,8 @@ model article {
   faqs            Json?             // [{question, answer}]
   relatedArticles Json?             // string[] of slugs
   status          String            @default("draft") // draft | published
+  featured        Boolean           @default(false)
+  highlighted     Boolean           @default(false)
   authorName      String?
   readingTime     Int?
   publishedAt     DateTime?

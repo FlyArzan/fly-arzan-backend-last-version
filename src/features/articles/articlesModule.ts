@@ -2,15 +2,29 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 import { prisma } from "@/lib/prisma.js";
 import { requireAdmin } from "@/lib/auth.js";
-import { toProxyUrl } from "@/lib/s3.js";
+import { toProxyUrl, proxyImagesInHtml } from "@/lib/s3.js";
 
 const app = new Hono();
 
-// The bucket has no public-read access, so every stored image is served
+// The bucket has no public-read access, so every stored image/file is served
 // through our own /api/media proxy — rewritten here at read time.
 const withProxiedImage = <T extends { featuredImage?: string | null }>(article: T): T => ({
   ...article,
   featuredImage: toProxyUrl(article.featuredImage),
+});
+
+// Same, but also rewrites images embedded inside the rich-text body itself,
+// and the standalone PDF file for PDF-type articles — used wherever the full
+// article is returned.
+const withProxiedArticle = <
+  T extends { featuredImage?: string | null; body?: string | null; pdfFile?: string | null },
+>(
+  article: T,
+): T => ({
+  ...article,
+  featuredImage: toProxyUrl(article.featuredImage),
+  body: proxyImagesInHtml(article.body),
+  pdfFile: toProxyUrl(article.pdfFile),
 });
 
 // ============================================
@@ -64,22 +78,46 @@ app.get("/", async (c: Context) => {
   return c.json({ articles: articles.map(withProxiedImage), total, page, limit });
 });
 
-// Featured articles (newest 6 published)
+const FEATURED_LIST_SELECT = {
+  id: true,
+  slug: true,
+  title: true,
+  shortSummary: true,
+  featuredImage: true,
+  imageAlt: true,
+  authorName: true,
+  readingTime: true,
+  publishedAt: true,
+  articleCategory: { select: { slug: true, name: true } },
+} as const;
+
+// Featured articles — admin-curated (featured: true). Falls back to newest 6
+// published articles if none have been curated yet, so the section is never
+// empty (e.g. right after this flag was introduced, before an admin uses it).
 app.get("/featured", async (c: Context) => {
-  const articles = await prisma.article.findMany({
+  const curated = await prisma.article.findMany({
+    where: { status: "published", featured: true },
+    select: FEATURED_LIST_SELECT,
+    orderBy: { publishedAt: "desc" },
+    take: 6,
+  });
+  if (curated.length > 0) return c.json(curated.map(withProxiedImage));
+
+  const fallback = await prisma.article.findMany({
     where: { status: "published" },
-    select: {
-      id: true,
-      slug: true,
-      title: true,
-      shortSummary: true,
-      featuredImage: true,
-      imageAlt: true,
-      authorName: true,
-      readingTime: true,
-      publishedAt: true,
-      articleCategory: { select: { slug: true, name: true } },
-    },
+    select: FEATURED_LIST_SELECT,
+    orderBy: { publishedAt: "desc" },
+    take: 6,
+  });
+  return c.json(fallback.map(withProxiedImage));
+});
+
+// "You Might Be Interested" — admin-curated (highlighted: true). Brand new,
+// no automatic fallback: the frontend simply hides the section when empty.
+app.get("/highlights", async (c: Context) => {
+  const articles = await prisma.article.findMany({
+    where: { status: "published", highlighted: true },
+    select: FEATURED_LIST_SELECT,
     orderBy: { publishedAt: "desc" },
     take: 6,
   });
@@ -146,7 +184,7 @@ app.get("/:slug", async (c: Context) => {
     include: { articleCategory: { select: { slug: true, name: true } } },
   });
   if (!article) return c.json({ message: "Article not found" }, 404);
-  return c.json(withProxiedImage(article));
+  return c.json(withProxiedArticle(article));
 });
 
 // ============================================
@@ -159,9 +197,11 @@ app.get("/admin/list", requireAdmin, async (c: Context) => {
   const limit = Math.min(100, Math.max(1, parseInt(c.req.query("limit") || "20")));
   const search = c.req.query("search") || "";
   const status = c.req.query("status");
+  const category = c.req.query("category");
 
   const where: any = {};
   if (status) where.status = status;
+  if (category) where.articleCategory = { some: { slug: category } };
   if (search) {
     where.OR = [
       { title: { contains: search, mode: "insensitive" } },
@@ -177,6 +217,9 @@ app.get("/admin/list", requireAdmin, async (c: Context) => {
         slug: true,
         title: true,
         status: true,
+        articleType: true,
+        featured: true,
+        highlighted: true,
         authorName: true,
         readingTime: true,
         publishedAt: true,
@@ -201,7 +244,7 @@ app.get("/admin/:id", requireAdmin, async (c: Context) => {
     include: { articleCategory: true },
   });
   if (!article) return c.json({ message: "Not found" }, 404);
-  return c.json(withProxiedImage(article));
+  return c.json(withProxiedArticle(article));
 });
 
 // Create article
@@ -215,6 +258,8 @@ app.post("/admin", requireAdmin, async (c: Context) => {
     categoryIds = [],
     shortSummary,
     body: articleBody,
+    articleType = "article",
+    pdfFile,
     featuredImage,
     imageAlt,
     authorName,
@@ -226,10 +271,17 @@ app.post("/admin", requireAdmin, async (c: Context) => {
     relatedArticles,
     status = "draft",
     publishedAt,
+    featured = false,
+    highlighted = false,
   } = body;
 
-  if (!title || !slug || !articleBody) {
-    return c.json({ message: "title, slug, and body are required" }, 400);
+  if (!title || !slug) {
+    return c.json({ message: "title and slug are required" }, 400);
+  }
+  if (articleType === "pdf") {
+    if (!pdfFile) return c.json({ message: "A PDF file is required for PDF-type articles" }, 400);
+  } else if (!articleBody) {
+    return c.json({ message: "body is required" }, 400);
   }
 
   const existing = await prisma.article.findUnique({ where: { slug } });
@@ -240,7 +292,9 @@ app.post("/admin", requireAdmin, async (c: Context) => {
       title,
       slug,
       shortSummary,
-      body: articleBody,
+      articleType,
+      body: articleType === "pdf" ? null : articleBody,
+      pdfFile: articleType === "pdf" ? pdfFile : null,
       featuredImage,
       imageAlt,
       authorName: authorName || "Fly Arzan Travel Team",
@@ -251,6 +305,8 @@ app.post("/admin", requireAdmin, async (c: Context) => {
       faqs: faqs || null,
       relatedArticles: relatedArticles || null,
       status,
+      featured: Boolean(featured),
+      highlighted: Boolean(highlighted),
       publishedAt: status === "published" ? (publishedAt ? new Date(publishedAt) : new Date()) : null,
       updatedBy: user?.email || "system",
       articleCategory: categoryIds.length
@@ -260,7 +316,7 @@ app.post("/admin", requireAdmin, async (c: Context) => {
     include: { articleCategory: true },
   });
 
-  return c.json(withProxiedImage(article), 201);
+  return c.json(withProxiedArticle(article), 201);
 });
 
 // Update article
@@ -278,6 +334,8 @@ app.put("/admin/:id", requireAdmin, async (c: Context) => {
     categoryIds,
     shortSummary,
     body: articleBody,
+    articleType,
+    pdfFile,
     featuredImage,
     imageAlt,
     authorName,
@@ -289,6 +347,8 @@ app.put("/admin/:id", requireAdmin, async (c: Context) => {
     relatedArticles,
     status,
     publishedAt,
+    featured,
+    highlighted,
   } = body;
 
   // If slug changed, check uniqueness
@@ -298,6 +358,7 @@ app.put("/admin/:id", requireAdmin, async (c: Context) => {
   }
 
   const wasPublished = existing.status !== "published" && status === "published";
+  const effectiveType = articleType !== undefined ? articleType : existing.articleType;
 
   const article = await prisma.article.update({
     where: { id },
@@ -305,7 +366,10 @@ app.put("/admin/:id", requireAdmin, async (c: Context) => {
       ...(title !== undefined && { title }),
       ...(slug !== undefined && { slug }),
       ...(shortSummary !== undefined && { shortSummary }),
-      ...(articleBody !== undefined && { body: articleBody }),
+      ...(articleType !== undefined && { articleType }),
+      ...(effectiveType === "pdf"
+        ? { body: null, pdfFile: pdfFile !== undefined ? pdfFile : existing.pdfFile }
+        : { body: articleBody !== undefined ? articleBody : existing.body, pdfFile: null }),
       ...(featuredImage !== undefined && { featuredImage }),
       ...(imageAlt !== undefined && { imageAlt }),
       ...(authorName !== undefined && { authorName }),
@@ -316,6 +380,8 @@ app.put("/admin/:id", requireAdmin, async (c: Context) => {
       ...(faqs !== undefined && { faqs }),
       ...(relatedArticles !== undefined && { relatedArticles }),
       ...(status !== undefined && { status }),
+      ...(featured !== undefined && { featured: Boolean(featured) }),
+      ...(highlighted !== undefined && { highlighted: Boolean(highlighted) }),
       publishedAt:
         status === "published"
           ? (publishedAt ? new Date(publishedAt) : (wasPublished ? new Date() : existing.publishedAt))
@@ -330,7 +396,7 @@ app.put("/admin/:id", requireAdmin, async (c: Context) => {
     include: { articleCategory: true },
   });
 
-  return c.json(withProxiedImage(article));
+  return c.json(withProxiedArticle(article));
 });
 
 // Delete article
@@ -340,34 +406,6 @@ app.delete("/admin/:id", requireAdmin, async (c: Context) => {
   if (!existing) return c.json({ message: "Not found" }, 404);
   await prisma.article.delete({ where: { id } });
   return c.json({ ok: true });
-});
-
-// Seed default categories
-app.post("/admin/seed-categories", requireAdmin, async (c: Context) => {
-  const defaults = [
-    { slug: "travel-news", name: "Travel News", description: "Latest travel updates, airline news, airport updates and important travel changes.", icon: "Newspaper" },
-    { slug: "travel-blogs", name: "Useful Articles", description: "Helpful travel articles, trip reports and destination experiences.", icon: "BookOpen" },
-    { slug: "travel-tips", name: "Travel Tips", description: "Practical tips and advice to make your travel easier and more enjoyable.", icon: "Lightbulb" },
-    { slug: "travel-feedback", name: "Travel Feedback", description: "Customer experiences and travel reviews.", icon: "MessageSquare" },
-    { slug: "travel-guidelines", name: "Travel Guidelines", description: "Essential travel rules, regulations and guidelines for travellers.", icon: "ClipboardList" },
-    { slug: "airport-guides", name: "Airport Guides", description: "Helpful airport information including terminals, transport, facilities, lounges and travel tips.", icon: "Building2" },
-    { slug: "destination-guides", name: "Destination Guides", description: "Comprehensive guides to popular travel destinations worldwide.", icon: "MapPin" },
-    { slug: "flight-booking-tips", name: "Flight Booking Tips", description: "Expert advice on finding cheap flights, best booking times and seat selection.", icon: "Plane" },
-    { slug: "baggage-information", name: "Baggage Information", description: "Complete guide to airline baggage policies, allowances and restrictions.", icon: "Luggage" },
-    { slug: "travel-restrictions", name: "Travel Restrictions & Updates", description: "Current travel restrictions, entry requirements and health regulations.", icon: "ShieldAlert" },
-    { slug: "visa-travel-documents", name: "Visa & Travel Documents", description: "Visa information, passport validity rules, travel documents and entry requirements.", icon: "FileText" },
-    { slug: "general-travel-advice", name: "General Travel Advice", description: "Broad travel advice covering safety, insurance, currency and more.", icon: "Info" },
-  ];
-
-  for (const cat of defaults) {
-    await prisma.articleCategory.upsert({
-      where: { slug: cat.slug },
-      update: { name: cat.name, description: cat.description, icon: cat.icon },
-      create: { id: cat.slug, slug: cat.slug, name: cat.name, description: cat.description, icon: cat.icon },
-    });
-  }
-
-  return c.json({ ok: true, seeded: defaults.length });
 });
 
 export default app;

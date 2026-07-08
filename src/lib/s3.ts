@@ -64,7 +64,7 @@ export const publicUrlForKey = (key: string) => {
 // key from whatever URL is stored and rebuilding it as our own proxy link.
 // Anything that doesn't look like one of our own keys (e.g. a genuinely
 // external image URL) passes through untouched.
-const MEDIA_KEY_PATTERN = /(articles|visa-flags|visa-destinations)\/[^/?#]+$/;
+const MEDIA_KEY_PATTERN = /(articles|visa-flags|visa-destinations|article-documents)\/[^/?#]+$/;
 
 export const toProxyUrl = (rawUrl?: string | null): string | null | undefined => {
   if (!rawUrl) return rawUrl;
@@ -72,4 +72,19 @@ export const toProxyUrl = (rawUrl?: string | null): string | null | undefined =>
   if (!match) return rawUrl;
   const base = (process.env.BETTER_AUTH_URL || "").replace(/\/$/, "");
   return `${base}/api/media/${match[0]}`;
+};
+
+// Same idea as toProxyUrl, but for a whole blob of rich-text HTML (e.g. an
+// article body) that can have any number of images embedded anywhere in the
+// markup via the WYSIWYG editor's own image tool — those are stored as plain
+// <img src="..."> inside the HTML string, not in a dedicated field, so
+// toProxyUrl alone never sees them. This finds every occurrence of a stored
+// image URL and rewrites it the same way.
+const MEDIA_URL_PATTERN_GLOBAL =
+  /https?:\/\/\S*?((?:articles|visa-flags|visa-destinations|article-documents)\/[^\s"'<>)]+)/g;
+
+export const proxyImagesInHtml = (html?: string | null): string | null | undefined => {
+  if (!html) return html;
+  const base = (process.env.BETTER_AUTH_URL || "").replace(/\/$/, "");
+  return html.replace(MEDIA_URL_PATTERN_GLOBAL, (_fullMatch, key) => `${base}/api/media/${key}`);
 };
