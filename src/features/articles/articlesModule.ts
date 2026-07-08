@@ -112,8 +112,9 @@ app.get("/featured", async (c: Context) => {
   return c.json(fallback.map(withProxiedImage));
 });
 
-// "You Might Be Interested" — admin-curated (highlighted: true). Brand new,
-// no automatic fallback: the frontend simply hides the section when empty.
+// "Highlights" — admin-curated (highlighted: true). No automatic fallback:
+// the frontend always renders the section heading and shows an empty state
+// when there's nothing curated yet, rather than hiding the section.
 app.get("/highlights", async (c: Context) => {
   const articles = await prisma.article.findMany({
     where: { status: "published", highlighted: true },
