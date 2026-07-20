@@ -40,11 +40,11 @@ export const s3 = isS3Configured
     })
   : null;
 
-// Build the public URL for a stored object key. This is only ever used as the
-// raw, canonical "where the object lives" value saved to the DB at upload
-// time — it is NOT directly reachable by browsers (see toProxyUrl below), but
-// keeping it as the stored value means no migration is needed if the proxy
-// scheme ever changes.
+// Build the raw, canonical "where the object lives" bucket URL for a stored
+// object key. This is NOT directly reachable by browsers (see toProxyUrl
+// below); the presign endpoint wraps it in toProxyUrl before returning it, so
+// what actually gets saved is the proxied /api/media URL. Existing records may
+// still hold the raw form — toProxyUrl handles both idempotently at read time.
 export const publicUrlForKey = (key: string) => {
   if (S3_PUBLIC_URL) return `${S3_PUBLIC_URL}/${key}`;
   // Fallback: derive from endpoint + bucket (path-style).

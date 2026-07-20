@@ -4,7 +4,7 @@ import { PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { randomUUID } from "crypto";
 import { requireAdmin } from "@/lib/auth.js";
-import { s3, S3_BUCKET, isS3Configured, publicUrlForKey } from "@/lib/s3.js";
+import { s3, S3_BUCKET, isS3Configured, publicUrlForKey, toProxyUrl } from "@/lib/s3.js";
 
 const app = new Hono();
 
@@ -88,10 +88,18 @@ app.post("/presign", requireAdmin, async (c: Context) => {
     expiresIn: PRESIGN_EXPIRY_SECONDS,
   });
 
+  // Return the PROXIED (/api/media) URL, not the raw bucket URL. The bucket is
+  // private (Tigris has no public-read), so the raw URL is not reachable by a
+  // browser — using it as an <img src> immediately after upload shows a broken
+  // image until a page reload re-fetches the record (which proxies it). Handing
+  // back the proxied URL makes the upload preview work right away and stores a
+  // browser-reachable value. toProxyUrl is idempotent, so re-proxying this at
+  // read time (withProxiedArticle) is a no-op — no regression for existing
+  // records still stored as raw bucket URLs.
   return c.json({
     uploadUrl,
     key,
-    publicUrl: publicUrlForKey(key),
+    publicUrl: toProxyUrl(publicUrlForKey(key)),
     contentType,
     expiresIn: PRESIGN_EXPIRY_SECONDS,
   });
