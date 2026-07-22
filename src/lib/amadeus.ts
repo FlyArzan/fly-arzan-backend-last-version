@@ -1,3 +1,12 @@
+import dns from "node:dns";
+
+// Prefer IPv4 when resolving outbound hosts. Node 18+ defaults to "verbatim"
+// resolution order (frequently IPv6-first), and on some hosts (e.g. Railway)
+// the IPv6 route to the Amadeus API is unreachable — which surfaces as an
+// opaque `TypeError: fetch failed`. Forcing IPv4-first avoids that failure mode
+// and is safe: it still falls back to IPv6 if no IPv4 address is available.
+dns.setDefaultResultOrder("ipv4first");
+
 // ─── In-memory token cache (Amadeus tokens last ~30 min) ─────────────────────
 let _cachedToken: string | null = null;
 let _tokenExpiresAt = 0; // epoch ms
@@ -29,18 +38,44 @@ export const getAmadeusToken = async () => {
     client_secret: process.env.AMADEUS_API_SECRET!,
   });
 
-  let response: Response;
-  try {
-    response = await fetch(url, {
+  // Fetch the token with a 15s timeout and one retry. Crucially, on failure we
+  // surface the underlying `.cause` (ENOTFOUND / ETIMEDOUT / ECONNREFUSED / TLS
+  // error) and the URL used — otherwise fetch only reports the opaque
+  // "TypeError: fetch failed", which is impossible to diagnose from logs.
+  const doFetch = () =>
+    fetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
       },
       body: body,
+      signal: AbortSignal.timeout(15_000),
     });
-  } catch (networkErr) {
-    console.error("[Amadeus] ❌ Network error on token request:", networkErr);
-    throw new Error(`Amadeus token network error: ${String(networkErr)}`);
+
+  let response: Response | undefined;
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      response = await doFetch();
+      break;
+    } catch (networkErr) {
+      lastErr = networkErr;
+      const cause = (networkErr as { cause?: { code?: string; message?: string } })
+        ?.cause;
+      console.error(
+        `[Amadeus] ❌ Network error on token request (attempt ${attempt}/2):`,
+        networkErr,
+        cause ? `| cause: ${cause.code || cause.message || String(cause)}` : "",
+      );
+      if (attempt < 2) await new Promise((r) => setTimeout(r, 500));
+    }
+  }
+
+  if (!response) {
+    const cause = (lastErr as { cause?: { code?: string; message?: string } })
+      ?.cause;
+    const detail = cause?.code || cause?.message || String(lastErr);
+    throw new Error(`Amadeus token network error: ${detail} (url: ${url})`);
   }
 
   const rawBody = await response.text();
