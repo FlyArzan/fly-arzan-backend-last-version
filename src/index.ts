@@ -26,6 +26,7 @@ import notificationModule from "@/features/notifications/notificationModule.js";
 import emailModule from "@/features/email/emailModule.js";
 import contactModule from "@/features/contact/contactModule.js";
 import airportModule from "@/features/airports/airportModule.js";
+import airlinesModule from "@/features/airlines/airlinesModule.js";
 import articlesModule from "@/features/articles/articlesModule.js";
 import visaModule from "@/features/visa/visaModule.js";
 import uploadsModule from "@/features/uploads/uploadsModule.js";
@@ -158,6 +159,7 @@ app.route("/admin/email", emailModule);
 app.route("/user", userModule);
 app.route("/notifications", notificationModule);
 app.route("/airports", airportModule);
+app.route("/admin/airlines", airlinesModule); // airline reference lookup for the admin airport form
 app.route("/articles", articlesModule);
 app.route("/admin/articles", articlesModule);
 app.route("/visa-info", visaModule);
