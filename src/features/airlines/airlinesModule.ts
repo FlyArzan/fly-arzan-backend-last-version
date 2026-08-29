@@ -9,10 +9,11 @@ const app = new Hono();
  * Airline reference lookup.
  *
  * The `airline` table is populated by src/import-data.ts from
- * airline_iata_icao_codes.json but had no route exposing it. The admin airport
- * form needs it to autocomplete "which airlines serve this airport": the editor
- * types a name or code, picks a match, and we fill in the IATA code (which in
- * turn resolves the logo at /logos/<IATA>.png on the public side) plus website.
+ * airline_iata_icao_codes.json but had no route exposing it. The admin Airlines
+ * editor needs it to autocomplete "which airline is this": the editor types a
+ * name or code, picks a match, and we fill in the IATA/ICAO code (which
+ * resolves the logo at /logos/<IATA>.png on the public side) plus website and
+ * country.
  *
  * Admin-only — this is an authoring aid, not public data.
  */

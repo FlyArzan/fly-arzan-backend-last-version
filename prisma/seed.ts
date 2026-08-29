@@ -1,5 +1,6 @@
 import { hashPassword } from "better-auth/crypto";
-import { prisma } from "../src/lib/prisma";
+import { prisma } from "../src/lib/prisma.js";
+import { airlinesSeedContent } from "../src/features/cms/airlinesSeedContent.js";
 
 async function main(total: number) {
   await prisma.$transaction(
@@ -765,6 +766,11 @@ async function main(total: number) {
             slug: "visa_requirements",
             title: "Visa Requirements",
             content: visaRequirementsContent,
+          },
+          {
+            slug: "airlines",
+            title: "Airline Information Hub",
+            content: airlinesSeedContent,
           },
         ];
 
